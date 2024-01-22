@@ -5,7 +5,10 @@ import (
 	"reflect"
 	"unsafe"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type ShmMessage struct {
@@ -68,4 +71,41 @@ func unsafeGetBytes(s string) []byte {
 func ByteSlice2String(bs []byte) string {
 	// fmt.Printf("ByteSlice2String pointer: %p\n", unsafe.Pointer(&bs))
 	return *(*string)(unsafe.Pointer(&bs))
+}
+
+// TranslateContextError converts the given error to a gRPC status error if it
+// is a context error. If it is context.DeadlineExceeded, it is converted to an
+// error with a status code of DeadlineExceeded. If it is context.Canceled, it
+// is converted to an error with a status code of Canceled. If it is not a
+// context error, it is returned without any conversion.
+func TranslateContextError(err error) error {
+	switch err {
+	case context.DeadlineExceeded:
+		return status.Errorf(codes.DeadlineExceeded, err.Error())
+	case context.Canceled:
+		return status.Errorf(codes.Canceled, err.Error())
+	}
+	return err
+}
+
+// FindUnaryMethod returns the method descriptor for the named method. If the
+// method is not found in the given slice of descriptors, nil is returned.
+func FindUnaryMethod(methodName string, methods []grpc.MethodDesc) *grpc.MethodDesc {
+	for i := range methods {
+		if methods[i].MethodName == methodName {
+			return &methods[i]
+		}
+	}
+	return nil
+}
+
+// FindStreamingMethod returns the stream descriptor for the named method. If
+// the method is not found in the given slice of descriptors, nil is returned.
+func FindStreamingMethod(methodName string, methods []grpc.StreamDesc) *grpc.StreamDesc {
+	for i := range methods {
+		if methods[i].StreamName == methodName {
+			return &methods[i]
+		}
+	}
+	return nil
 }
