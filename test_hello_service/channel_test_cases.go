@@ -33,7 +33,7 @@ const (
 )
 
 func testHello(t *testing.T, cli TestServiceClient) {
-	ctx := metadata.NewOutgoingContext(context.Background(), MetadataNew(testOutgoingMd))
+	ctx := metadata.NewOutgoingContext(context.Background(), MetadataNew(testOutgoingMdHello))
 
 	name := flag.String("helloname", defaultName, "Name to greet")
 
@@ -43,8 +43,8 @@ func testHello(t *testing.T, cli TestServiceClient) {
 		if err != nil {
 			t.Fatalf("RPC failed: %v", err)
 		}
-		if !bytes.Equal([]byte("Hello world"), []byte(rsp.GetMessage())) {
-			t.Fatalf("wrong payload returned: expecting %v; got %v", testPayload, rsp.GetMessage())
+		if !bytes.Equal(testPayloadHello, []byte(rsp.GetMessage())) {
+			t.Fatalf("wrong payload returned: expecting %v; got %v", testPayloadHello, rsp.GetMessage())
 		}
 
 	})
@@ -52,7 +52,7 @@ func testHello(t *testing.T, cli TestServiceClient) {
 }
 
 func testGoodbye(t *testing.T, cli TestServiceClient) {
-	ctx := metadata.NewOutgoingContext(context.Background(), MetadataNew(testOutgoingMd))
+	ctx := metadata.NewOutgoingContext(context.Background(), MetadataNew(testOutgoingMdGoodbye))
 
 	name := flag.String("goodbyename", defaultName, "Name to greet")
 
@@ -62,8 +62,8 @@ func testGoodbye(t *testing.T, cli TestServiceClient) {
 		if err != nil {
 			t.Fatalf("RPC failed: %v", err)
 		}
-		if !bytes.Equal([]byte("Goodbye world"), []byte(rsp.GetMessage())) {
-			t.Fatalf("wrong payload returned: expecting %v; got %v", testPayload, rsp.GetMessage())
+		if !bytes.Equal(testPayloadGoodbye, []byte(rsp.GetMessage())) {
+			t.Fatalf("wrong payload returned: expecting %v; got %v", testPayloadGoodbye, rsp.GetMessage())
 		}
 
 	})
@@ -80,12 +80,19 @@ func MetadataNew(m map[string][]byte) metadata.MD {
 }
 
 var (
-	testPayload = []byte{100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0}
+	testPayloadHello   = []byte("Hello world")
+	testPayloadGoodbye = []byte("Goodbye world")
 
-	testOutgoingMd = map[string][]byte{
+	testOutgoingMdHello = map[string][]byte{
 		"foo":        []byte("bar"),
 		"baz":        []byte("bedazzle"),
-		"pickle-bin": testPayload,
+		"pickle-bin": testPayloadHello,
+	}
+
+	testOutgoingMdGoodbye = map[string][]byte{
+		"foo":        []byte("bar"),
+		"baz":        []byte("bedazzle"),
+		"pickle-bin": testPayloadGoodbye,
 	}
 
 	// testMdHeaders = map[string][]byte{

@@ -1,4 +1,4 @@
-package internal
+package notnets_grpc
 
 import (
 	"context"
@@ -13,11 +13,11 @@ import (
 
 type ShmMessage struct {
 	Method string          `json:"method"`
-	Ctx    context.Context `json:"omitempty"`
+	ctx    context.Context `json:"ctx,omitempty"`
 	// Headers  map[string][]byte `json:"headers,omitempty"`
 	// Trailers map[string][]byte `json:"trailers,omitempty"`
-	Headers  metadata.MD `json:"headers"`
-	Trailers metadata.MD `json:"trailers"`
+	Headers  metadata.MD `json:",omitempty"`
+	Trailers metadata.MD `json:",omitempty"`
 	// Payload  string      `json:"payload"`
 	Payload []byte
 	// Payload interface{}     `protobuf:"bytes,3,opt,name=method,proto3" json:"payload"`
@@ -44,10 +44,26 @@ func (mes *ShmMessage) WithContext(ctx context.Context) *ShmMessage {
 	}
 	mes2 := new(ShmMessage)
 	*mes2 = *mes
-	mes2.Ctx = ctx
+	mes2.ctx = ctx
 	return mes2
 }
 
+//	func headersFromContext(ctx context.Context) http.Header {
+//		h := http.Header{}
+//		if md, ok := metadata.FromOutgoingContext(ctx); ok {
+//			toHeaders(md, h, "")
+//		}
+//		if deadline, ok := ctx.Deadline(); ok {
+//			timeout := time.Until(deadline)
+//			millis := int64(timeout / time.Millisecond)
+//			if millis <= 0 {
+//				millis = 1
+//			}
+//			h.Set("GRPC-Timeout", fmt.Sprintf("%dm", millis))
+//		}
+//		return h
+//	}
+//
 // headersFromContext returns HTTP request headers to send to the remote host
 // based on the specified context. GRPC clients store outgoing metadata into the
 // context, which is translated into headers. Also, a context deadline will be

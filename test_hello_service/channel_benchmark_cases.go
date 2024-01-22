@@ -62,8 +62,8 @@ func BenchmarkUnaryLatency(b *testing.B, cli TestServiceClient) {
 		if err != nil {
 			b.Fatalf("RPC failed: %v", err)
 		}
-		if !bytes.Equal([]byte("Hello world"), []byte(rsp.GetMessage())) {
-			b.Fatalf("wrong payload returned: expecting %v; got %v", testPayload, rsp.GetMessage())
+		if !bytes.Equal(testPayloadHello, []byte(rsp.GetMessage())) {
+			b.Fatalf("wrong payload returned: expecting %v; got %v", testPayloadHello, rsp.GetMessage())
 		}
 		// checkRequestHeadersBench(b, testOutgoingMd, rsp.Headers)
 
@@ -88,8 +88,8 @@ func BenchmarkHelloHistogram(b *testing.B, cli TestServiceClient) {
 		if err != nil {
 			b.Fatalf("RPC failed: %v", err)
 		}
-		if !bytes.Equal([]byte("Hello world"), []byte(rsp.GetMessage())) {
-			b.Fatalf("wrong payload returned: expecting %v; got %v", testPayload, rsp.GetMessage())
+		if !bytes.Equal(testPayloadHello, []byte(rsp.GetMessage())) {
+			b.Fatalf("wrong payload returned: expecting %v; got %v", testPayloadHello, rsp.GetMessage())
 		}
 	}
 

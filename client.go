@@ -118,6 +118,7 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 	//if using dialer always client
 	ch := &NotnetsChannel{
 		conn: &NotnetsConn{
+			ClientSide:  true,
 			local_addr:  &NotnetsAddr{basic: local_addr},
 			remote_addr: &NotnetsAddr{basic: remote_addr},
 		},
@@ -125,7 +126,7 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 	ch.conn.isConnected = false
 
 	log.Info().Msgf("Client: Opening New Channel \n")
-	ch.conn.queues = ClientOpen(local_addr, remote_addr, 512)
+	ch.conn.queues = ClientOpen(local_addr, remote_addr, MESSAGE_SIZE)
 
 	log.Info().Msgf("Client: New Channel: %v \n ", ch.conn.queues.ClientId)
 	log.Info().Msgf("Client: New Channel RequestShmid: %v \n ", ch.conn.queues.RequestShmaddr)
@@ -134,7 +135,7 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 	ch.conn.isConnected = true
 
 	ch.variable_read_buffer = bytes.NewBuffer(nil)
-	ch.fixed_read_buffer = make([]byte, 512)
+	ch.fixed_read_buffer = make([]byte, MESSAGE_SIZE)
 
 	return ch, nil
 }
@@ -176,10 +177,10 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		return err
 	}
 
-	messageRequest := &internal.ShmMessage{
-		Method: methodName,
-		Ctx:    ctx,
-		// Headers: headersFromContext(ctx),
+	messageRequest := &ShmMessage{
+		Method:  methodName,
+		ctx:     ctx,
+		Headers: headersFromContext(ctx),
 		// Trailers: trailersFrom,
 		Payload: serializedPayload,
 	}
@@ -211,7 +212,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
-	var messageResponse internal.ShmMessage
+	var messageResponse ShmMessage
 	dec := json.NewDecoder(ch.variable_read_buffer)
 	err = dec.Decode(&messageResponse)
 

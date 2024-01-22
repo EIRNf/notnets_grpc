@@ -49,6 +49,8 @@ import (
 // 	return C.send_rpc(cqp, cbuf, C.ulong(len(buf)))
 // }
 
+const MESSAGE_SIZE = 512
+
 type QueuePair struct {
 	ClientId        int
 	RequestShmaddr  unsafe.Pointer
