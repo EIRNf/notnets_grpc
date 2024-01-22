@@ -144,7 +144,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 	s.lis = lis
 	s.mu.Unlock()
 
-	log.Info().Msgf("Serving at address: {}", s.lis.Addr())
+	log.Info().Msgf("Serving at address: %v", s.lis.Addr())
 
 	//Begin Accept Loop
 
@@ -180,7 +180,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 		//Check we have not accepted this in the past
 		_, ok := s.conns.Load(rawConn.(*NotnetsConn).queues.ClientId)
 		if ok {
-			log.Info().Msgf("Already served queue_pair, backoff")
+			log.Info().Msg("Already served queue_pair, backoff")
 
 			if tempDelay == 0 {
 				tempDelay = 5 * time.Second
