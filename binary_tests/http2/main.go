@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"notnets_grpc/test_hello_service"
 
+	"github.com/EIRNf/notnets_grpc/test_hello_service"
 	"google.golang.org/grpc"
 )
 

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"notnets_grpc"
-	"notnets_grpc/test_hello_service"
+	"github.com/EIRNf/notnets_grpc"
+	"github.com/EIRNf/notnets_grpc/test_hello_service"
 )
 
 func main() {

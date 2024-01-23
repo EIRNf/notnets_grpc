@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"net"
-	"notnets_grpc/internal"
+
+	"github.com/EIRNf/notnets_grpc/internal"
+
 	"sync"
 	"time"
 

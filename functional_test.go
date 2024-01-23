@@ -4,7 +4,7 @@ import (
 	"log"
 	"testing"
 
-	"notnets_grpc/test_hello_service"
+	"github.com/EIRNf/notnets_grpc/test_hello_service"
 )
 
 func TestGrpcOverSharedMemory(t *testing.T) {

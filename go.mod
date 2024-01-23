@@ -1,4 +1,4 @@
-module notnets_grpc
+module github.com/EIRNf/notnets_grpc
 
 go 1.20
 

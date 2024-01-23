@@ -5,10 +5,11 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"notnets_grpc/internal"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EIRNf/notnets_grpc/internal"
 
 	"github.com/fullstorydev/grpchan"
 	jsoniter "github.com/json-iterator/go"

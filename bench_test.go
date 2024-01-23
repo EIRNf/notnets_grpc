@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	test_hello_service "notnets_grpc/test_hello_service"
+	"github.com/EIRNf/notnets_grpc/test_hello_service"
 )
 
 func BenchmarkGrpcOverSharedMemory(b *testing.B) {

@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"log"
-	"notnets_grpc/test_hello_service"
 	"testing"
+
+	"github.com/EIRNf/notnets_grpc/test_hello_service"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
