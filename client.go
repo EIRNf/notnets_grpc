@@ -125,8 +125,34 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 	}
 	ch.conn.isConnected = false
 
+	// ch.conn.SetDeadline(time.Second * 30)
+
+	var tempDelay time.Duration
 	log.Info().Msgf("Client: Opening New Channel \n")
 	ch.conn.queues = ClientOpen(local_addr, remote_addr, MESSAGE_SIZE)
+
+	if ch.conn.queues == nil { //if null means server doesn't exist yet
+		for {
+			log.Info().Msgf("Client: Opening New Channel Failed: Try Again\n")
+
+			//Reattempt wit backoff
+			if tempDelay == 0 {
+				tempDelay = 10 * time.Second
+			} else {
+				tempDelay *= 2
+			}
+			if max := 40 * time.Second; tempDelay > max {
+				tempDelay = max
+			}
+			timer := time.NewTimer(tempDelay)
+			<-timer.C
+			ch.conn.queues = ClientOpen(local_addr, remote_addr, MESSAGE_SIZE)
+			if ch.conn.queues != nil {
+				break
+			}
+		}
+
+	}
 
 	log.Info().Msgf("Client: New Channel: %v \n ", ch.conn.queues.ClientId)
 	log.Info().Msgf("Client: New Channel RequestShmid: %v \n ", ch.conn.queues.RequestShmaddr)
