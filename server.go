@@ -164,7 +164,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 		}
 
 		if rawConn == nil {
-			log.Info().Msgf("Null queue_pair, backoff")
+			log.Trace().Msgf("Null queue_pair, backoff")
 
 			if tempDelay == 0 {
 				tempDelay = 5 * time.Second
@@ -187,7 +187,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 		//Check we have not accepted this in the past
 		_, ok := s.conns.Load(rawConn.(*NotnetsConn).queues.ClientId)
 		if ok {
-			log.Info().Msg("Already served queue_pair, backoff")
+			log.Trace().Msg("Already served queue_pair, backoff")
 
 			if tempDelay == 0 {
 				tempDelay = 5 * time.Second
@@ -236,7 +236,7 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 
 	//Launch dedicated thread to handle
 	go func() {
-		log.Info().Msgf("New go routine for connection: %v", conn)
+		log.Trace().Msgf("New go routine for connection: %v", conn)
 
 		s.serveRequests(conn)
 		// If return from this method, connection has been closed
@@ -249,7 +249,7 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 // Uses predeclared function
 func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
-	log.Info().Msgf("Serving: %v", conn)
+	log.Trace().Msgf("Serving: %v", conn)
 
 	// defer close connection
 	// var wg sync.WaitGroup
@@ -266,7 +266,7 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
 		b.Write(buf)
 		if size == 0 { //Have full payload
-			log.Info().Msgf("Received request: %v", b)
+			log.Trace().Msgf("Received request: %v", b)
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
 			s.handleMethod(conn, b)
@@ -292,7 +292,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		log.Panic()
 	}
 
-	log.Info().Msgf("Server: Deserialized Request: %v \n ", messageRequest)
+	log.Trace().Msgf("Server: Deserialized Request: %v \n ", messageRequest)
 
 	// log.Info().Msgf("unmarshal: %s", s.timestamp_dif())
 
@@ -337,7 +337,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		if err := protojson.Unmarshal(messageRequest.Payload, msg.(proto.Message)); err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
-		log.Info().Msgf("Server: Deserialized Payload: %v \n ", msg)
+		log.Trace().Msgf("Server: Deserialized Payload: %v \n ", msg)
 		return nil
 	}
 
@@ -367,7 +367,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	}
 	// log.Info().Msgf("handle: %s", s.timestamp_dif())
 
-	log.Info().Msgf("Server: Response: %v \n ", resp)
+	log.Trace().Msgf("Server: Response: %v \n ", resp)
 
 	var resp_buffer []byte
 	// resp_buffer, err = codec.Marshal(resp)
@@ -392,7 +392,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
 
-	log.Info().Msgf("Server: Serialized Response: %v \n ", serializedMessage)
+	log.Trace().Msgf("Server: Serialized Response: %v \n ", serializedMessage)
 
 	// log.Info().Msgf("Server: Message Sent: %v \n ", serializedMessage)
 

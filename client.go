@@ -219,7 +219,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		return err
 	}
 
-	log.Info().Msgf("Client: Serialized Request: %v \n ", serializedMessage)
+	log.Trace().Msgf("Client: Serialized Request: %v \n ", serializedMessage)
 
 	//START MESSAGING
 	// pass into shared mem queue
@@ -240,7 +240,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
-	log.Info().Msgf("Client: Serialized Response: %v \n ", ch.variable_read_buffer)
+	log.Trace().Msgf("Client: Serialized Response: %v \n ", ch.variable_read_buffer)
 
 	var messageResponse ShmMessage
 	dec := json.NewDecoder(ch.variable_read_buffer)
@@ -250,7 +250,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		return err // TODO BAD
 	}
 
-	log.Info().Msgf("Client: Deserialized Response: %v \n ", messageResponse)
+	log.Trace().Msgf("Client: Deserialized Response: %v \n ", messageResponse)
 
 	payload := messageResponse.Payload
 
