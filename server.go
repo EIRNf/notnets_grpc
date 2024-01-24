@@ -321,6 +321,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// log.Info().Msgf("query service: %s", s.timestamp_dif())
 
 	//Get Method Descriptor
+	//TODO CRASH HERE
 	md := FindUnaryMethod(methodName, sd.Methods)
 	if md == nil {
 		// method name not found

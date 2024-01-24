@@ -246,6 +246,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	dec := json.NewDecoder(ch.variable_read_buffer)
 	err = dec.Decode(&messageResponse)
 
+	ch.variable_read_buffer.Reset()
+
 	if err != nil {
 		return err // TODO BAD
 	}
