@@ -16,10 +16,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/encoding"
-	grpcproto "google.golang.org/grpc/encoding/proto"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 type NotnetsListener struct {
@@ -30,6 +30,8 @@ type NotnetsListener struct {
 
 func Listen(addr string) *NotnetsListener {
 	var lis NotnetsListener
+	log.Info().Msgf("New Listener at: %s", addr)
+
 	lis.notnets_context = RegisterServer(addr)
 	lis.addr = NotnetsAddr{basic: addr}
 	return &lis
@@ -234,6 +236,8 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 
 	//Launch dedicated thread to handle
 	go func() {
+		log.Info().Msgf("New go routine for connection: %v", conn)
+
 		s.serveRequests(conn)
 		// If return from this method, connection has been closed
 		// Remove and start servicing, close connection
@@ -245,6 +249,8 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 // Uses predeclared function
 func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
+	log.Info().Msgf("Serving: %v", conn)
+
 	// defer close connection
 	// var wg sync.WaitGroup
 
@@ -255,13 +261,13 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 	for {
 		size, err := conn.Read(buf)
 		if err != nil {
-			if err != nil {
-				log.Error().Msgf("Read error: %v", err)
-			}
+			log.Error().Msgf("Read error: %v", err)
 		}
 
 		b.Write(buf)
 		if size == 0 { //Have full payload
+			log.Info().Msgf("Received request: %v", b)
+
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
 			s.handleMethod(conn, b)
 		}
@@ -285,6 +291,8 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	if err != nil {
 		log.Panic()
 	}
+
+	log.Info().Msgf("Server: Deserialized Request: %v \n ", messageRequest)
 
 	// log.Info().Msgf("unmarshal: %s", s.timestamp_dif())
 
@@ -322,16 +330,27 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// log.Info().Msgf("find unary: %s", s.timestamp_dif())
 
 	//Get Codec for content type.
-	codec := encoding.GetCodec(grpcproto.Name)
+	// codec := encoding.GetCodec(grpcproto.Name)
 
 	// Function to unmarshal payload using proto
 	dec := func(msg interface{}) error {
-		val := messageRequest.Payload
-		if err := codec.Unmarshal(val, msg); err != nil {
+		if err := protojson.Unmarshal(messageRequest.Payload, msg.(proto.Message)); err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
+		log.Info().Msgf("Server: Deserialized Payload: %v \n ", msg)
 		return nil
 	}
+
+	// Function to unmarshal payload using proto
+	// dec := func(msg interface{}) error {
+	// 	val := messageRequest.Payload
+	// 	if err := codec.Unmarshal(val, msg); err != nil {
+	// 		log.Info().Msgf("Server: Deserialized Payload: %v \n ", msg)
+
+	// 		return status.Error(codes.InvalidArgument, err.Error())
+	// 	}
+	// 	return nil
+	// }
 
 	// Implements server transport stream
 	sts := internal.UnaryServerTransportStream{Name: methodName}
@@ -348,8 +367,12 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	}
 	// log.Info().Msgf("handle: %s", s.timestamp_dif())
 
+	log.Info().Msgf("Server: Response: %v \n ", resp)
+
 	var resp_buffer []byte
-	resp_buffer, err = codec.Marshal(resp)
+	// resp_buffer, err = codec.Marshal(resp)
+	resp_buffer, err = protojson.Marshal(resp.(proto.Message))
+
 	if err != nil {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
@@ -368,6 +391,8 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	if err != nil {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
+
+	log.Info().Msgf("Server: Serialized Response: %v \n ", serializedMessage)
 
 	// log.Info().Msgf("Server: Message Sent: %v \n ", serializedMessage)
 

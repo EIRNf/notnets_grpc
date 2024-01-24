@@ -5,11 +5,27 @@ import (
 	"reflect"
 	"unsafe"
 
+	// "github.com/golang/protobuf/proto"
+	// "github.com/protocolbuffers/protobuf-go"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// type ProtoShmMessage struct {
+// 	Method string          `json:"method"`
+// 	ctx    context.Context `json:"ctx,omitempty"`
+// 	// Headers  map[string][]byte `json:"headers,omitempty"`
+// 	// Trailers map[string][]byte `json:"trailers,omitempty"`
+// 	Headers  metadata.MD `json:",omitempty"`
+// 	Trailers metadata.MD `json:",omitempty"`
+// 	// Payload  string      `json:"payload"`
+// 	// Payload []byte `json:",string"`
+// 	Payload proto.Message
+// 	// Payload interface{}     `protobuf:"bytes,3,opt,name=method,proto3" json:"payload"`
+// }
 
 type ShmMessage struct {
 	Method string          `json:"method"`
@@ -19,9 +35,48 @@ type ShmMessage struct {
 	Headers  metadata.MD `json:",omitempty"`
 	Trailers metadata.MD `json:",omitempty"`
 	// Payload  string      `json:"payload"`
+	// Payload []byte `json:",string"`
 	Payload []byte
 	// Payload interface{}     `protobuf:"bytes,3,opt,name=method,proto3" json:"payload"`
 }
+
+// func (s *ShmMessage) MarshalJSON() ([]byte, error) {
+// 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
+// 	type Alias ShmMessage
+// 	return json.Marshal(&struct {
+// 		*Alias
+// 		Payload string `json:"payload"`
+// 	}{
+// 		Alias:   (*Alias)(s),
+// 		Payload: base64.StdEncoding.EncodeToString(s.Payload),
+// 	})
+
+// }
+
+// func (s *ShmMessage) UnmarshalJSON(data []byte) error {
+// 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+// 	type Alias ShmMessage
+// 	aux := &struct {
+// 		*Alias
+// 		Payload string `json:"payload"`
+// 	}{}
+
+// 	if err := json.Unmarshal(data, &aux); err != nil {
+// 		return err
+// 	}
+
+// 	payloadBytes, err := base64.StdEncoding.DecodeString(aux.Payload)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	s.Method = aux.Method
+// 	s.ctx = aux.ctx
+// 	s.Headers = aux.Headers
+// 	s.Trailers = aux.Trailers
+// 	s.Payload = payloadBytes
+// 	return nil
+// }
 
 // Gets background context
 // For outgoing client requests, the context controls cancellation.

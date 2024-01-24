@@ -12,10 +12,10 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/encoding"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	jsoniter "github.com/json-iterator/go"
-	grpcproto "google.golang.org/grpc/encoding/proto"
 )
 
 type NotnetsAddr struct {
@@ -130,7 +130,7 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 	// ch.conn.SetDeadline(time.Second * 30)
 
 	var tempDelay time.Duration
-	log.Info().Msgf("Client: Opening New Channel \n")
+	log.Info().Msgf("Client: Opening New Channel %s,%s\n", local_addr, remote_addr)
 	ch.conn.queues = ClientOpen(local_addr, remote_addr, MESSAGE_SIZE)
 
 	if ch.conn.queues == nil { //if null means server doesn't exist yet
@@ -198,9 +198,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// 	return err
 	// }
 
-	codec := encoding.GetCodec(grpcproto.Name)
-
-	serializedPayload, err := codec.Marshal(req)
+	serializedPayload, err := protojson.Marshal(req.(proto.Message))
 	if err != nil {
 		return err
 	}
@@ -221,6 +219,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		return err
 	}
 
+	log.Info().Msgf("Client: Serialized Request: %v \n ", serializedMessage)
+
 	//START MESSAGING
 	// pass into shared mem queue
 	ch.conn.Write(serializedMessage)
@@ -240,6 +240,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
+	log.Info().Msgf("Client: Serialized Response: %v \n ", ch.variable_read_buffer)
+
 	var messageResponse ShmMessage
 	dec := json.NewDecoder(ch.variable_read_buffer)
 	err = dec.Decode(&messageResponse)
@@ -247,6 +249,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	if err != nil {
 		return err // TODO BAD
 	}
+
+	log.Info().Msgf("Client: Deserialized Response: %v \n ", messageResponse)
 
 	payload := messageResponse.Payload
 
@@ -269,7 +273,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// 	return err
 	// }
 
-	ret_err := codec.Unmarshal(payload, resp)
+	ret_err := protojson.Unmarshal(payload, resp.(proto.Message))
 	return ret_err
 }
 
