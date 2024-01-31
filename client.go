@@ -185,6 +185,8 @@ var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, resp interface{}, opts ...grpc.CallOption) error {
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
+	log.Trace().Msgf("Client:  Request: %v \n ", req)
+
 	//Get Call Options
 	copts := internal.GetCallOptions(opts)
 
@@ -210,6 +212,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		// Trailers: trailersFrom,
 		Payload: serializedPayload,
 	}
+
+	log.Trace().Msgf("Client:  messageRequest: %v \n ", messageRequest)
 
 	// we have the meta request
 	// Marshall to build rest of system
