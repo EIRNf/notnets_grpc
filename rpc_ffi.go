@@ -75,7 +75,7 @@ func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (r
 	log.Info().Msgf("Client: open response : %v \n ", _ret)
 	ret = (*QueuePair)(unsafe.Pointer(_ret))
 	log.Info().Msgf("Client: open response ret : %v \n ", ret)
-
+	C.fflush(C.stdout)
 	return
 }
 
@@ -142,7 +142,7 @@ func (handler *ServerContext) Accept() (ret *QueuePair) {
 		ResponseShmaddr: _ret.response_shmaddr,
 	}
 	log.Info().Msgf("Server: open response ret new : %v \n ", ret)
-
+	C.fflush(C.stdout)
 	// C.free((unsafe.Pointer(_ret)))
 
 	return ret
