@@ -3,9 +3,14 @@ package main
 import (
 	"github.com/EIRNf/notnets_grpc"
 	"github.com/EIRNf/notnets_grpc/test_hello_service"
+	"github.com/rs/zerolog"
 )
 
 func main() {
+
+	// debug.SetGCPercent(-1)
+	// runtime.MemProfileRate = 1
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	// f, _ := os.Create("bench.prof")
 	// pprof.WriteHeapProfile(f)

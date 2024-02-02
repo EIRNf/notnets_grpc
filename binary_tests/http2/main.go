@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime/debug"
 
 	"github.com/EIRNf/notnets_grpc/test_hello_service"
 	"google.golang.org/grpc"
@@ -15,6 +16,9 @@ var (
 )
 
 func main() {
+
+	debug.SetGCPercent(-1)
+	// runtime.MemProfileRate = 1
 
 	svc := &test_hello_service.TestServer{}
 	flag.Parse()
