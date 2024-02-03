@@ -211,6 +211,8 @@ var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, resp interface{}, opts ...grpc.CallOption) error {
 	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
+	log.Trace().Msgf("Client:  Request: %v \n ", req)
+
 	//Get Call Options
 	copts := internal.GetCallOptions(opts)
 
