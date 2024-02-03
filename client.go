@@ -1,9 +1,14 @@
 package notnets_grpc
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"path"
 
 	"github.com/EIRNf/notnets_grpc/internal"
 
@@ -12,10 +17,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
-
-	jsoniter "github.com/json-iterator/go"
+	"google.golang.org/grpc/encoding"
+	encoding_proto "google.golang.org/grpc/encoding/proto"
 )
 
 type NotnetsAddr struct {
@@ -162,8 +165,20 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 
 	ch.conn.isConnected = true
 
+	ch.request_payload_buffer = make([]byte, MESSAGE_SIZE)
+	ch.request_buffer = bytes.NewReader(ch.request_payload_buffer)
+
 	ch.variable_read_buffer = bytes.NewBuffer(nil)
 	ch.fixed_read_buffer = make([]byte, MESSAGE_SIZE)
+
+	ch.response_buffer = bufio.NewReader(ch.variable_read_buffer)
+
+	// writer = io.Writer
+
+	// encoder = json.NewEncoder(writer)
+	// decoder = json.NewDecoder(reader)
+
+	// ch.dec = sonic.ConfigDefault.NewDecoder(ch.variable_read_buffer)
 
 	return ch, nil
 }
@@ -171,8 +186,19 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 type NotnetsChannel struct {
 	conn *NotnetsConn
 
+	request_payload_buffer []byte
+
 	fixed_read_buffer    []byte
 	variable_read_buffer *bytes.Buffer
+
+	// writer io.Writer
+	// reader io.Reader
+
+	// decoder json.Decoder
+	// encoder json.Encoder
+	// dec             sonic.Decoder
+	request_buffer  *bytes.Reader
+	response_buffer *bufio.Reader
 
 	//ctx
 	//connection
@@ -183,56 +209,54 @@ type NotnetsChannel struct {
 var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 
 func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, resp interface{}, opts ...grpc.CallOption) error {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 	//Get Call Options
 	copts := internal.GetCallOptions(opts)
 
 	// Get headersFromContext
-	// reqUrl := ch.targetAddress
-	// reqUrl.Path = path.Join(reqUrl.Path, methodName)
+	reqUrl := "//" + ch.conn.remote_addr.Network()
+	reqUrl = path.Join(reqUrl, methodName)
 	// reqUrlStr := reqUrl.String()
 
-	// ctx, err := internal.ApplyPerRPCCreds(ctx, copts, fmt.Sprintf("shm:0%s", reqUrlStr), true)
-	// if err != nil {
-	// 	return err
-	// }
-
-	serializedPayload, err := protojson.Marshal(req.(proto.Message))
+	ctx, err := internal.ApplyPerRPCCreds(ctx, copts, fmt.Sprintf("shm:0%s", reqUrl), true)
 	if err != nil {
 		return err
 	}
+	h := headersFromContext(ctx)
 
-	messageRequest := &ShmMessage{
-		Method:  methodName,
-		ctx:     ctx,
-		Headers: headersFromContext(ctx),
-		// Trailers: trailersFrom,
-		Payload: serializedPayload,
-	}
-
-	// we have the meta request
-	// Marshall to build rest of system
-	var serializedMessage []byte
-	serializedMessage, err = json.Marshal(messageRequest)
+	codec := encoding.GetCodec(encoding_proto.Name)
+	ch.request_payload_buffer, err = codec.Marshal(req)
 	if err != nil {
 		return err
 	}
+	ch.request_buffer.Reset(ch.request_payload_buffer)
+	r, err := http.NewRequest("POST", reqUrl, ch.request_buffer)
+	if err != nil {
+		return err
+	}
+	r.Header = h
 
-	log.Trace().Msgf("Client: Serialized Request: %v \n ", serializedMessage)
+	var writeBuffer = &bytes.Buffer{}
+	r.WithContext(ctx).Write(writeBuffer)
+
+	log.Trace().Msgf("Client: Serialized Request: %v \n ", writeBuffer.Bytes())
 
 	//START MESSAGING
 	// pass into shared mem queue
-	ch.conn.Write(serializedMessage)
+	ch.conn.Write(writeBuffer.Bytes())
 
 	//Receive Request
 	//iterate and append to dynamically allocated data until all data is read
 	var size int
+	//Most time is spend reading, wiating on Server to finish
 	for {
 		size, err = ch.conn.Read(ch.fixed_read_buffer)
 		if err != nil {
 			return err
 		}
+
+		//Add control flow to support cancel?
 
 		ch.variable_read_buffer.Write(ch.fixed_read_buffer)
 		if size == 0 { //Have full payload
@@ -242,30 +266,33 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 
 	log.Trace().Msgf("Client: Serialized Response: %v \n ", ch.variable_read_buffer)
 
-	var messageResponse ShmMessage
-	dec := json.NewDecoder(ch.variable_read_buffer)
-	err = dec.Decode(&messageResponse)
-
-	ch.variable_read_buffer.Reset()
-
+	ch.response_buffer.Reset(ch.variable_read_buffer)
+	tmp, err := http.ReadResponse(ch.response_buffer, r)
 	if err != nil {
-		return err // TODO BAD
+		return err
 	}
 
-	log.Trace().Msgf("Client: Deserialized Response: %v \n ", messageResponse)
+	//Create goroutine to handle cancels?
 
-	payload := messageResponse.Payload
+	b, err := io.ReadAll(tmp.Body)
+	if err != nil {
+		return err
+	}
 
-	copts.SetHeaders(messageResponse.Headers)
-	copts.SetTrailers(messageResponse.Trailers)
+	// copts.SetHeaders(t)
+	// copts.SetTrailers(messageResponse.Trailers)
 
-	//Update total number of back and forth messages
-	// fmt.Printf("finished message num %d:", ch.Metadata.NumMessages)
+	// // gather headers and trailers
+	// if len(copts.Headers) > 0 || len(copts.Trailers) > 0 {
+	// 	if err := setMetadata(reply.Header, copts); err != nil {
+	// 		return err
+	// 	}
+	// }
 
-	// we fire up a goroutine to read the response so that we can properly
-	// respect any context deadline (e.g. don't want to be blocked, reading
-	// from socket, long past requested timeout).
-	// respCh := make(chan struct{})
+	// if stat := statFromResponse(reply); stat.Code() != codes.OK {
+	// 	return stat.Err()
+	// }
+
 	// select {
 	// case <-ctx.Done():
 	// 	return statusFromContextError(ctx.Err())
@@ -275,8 +302,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// 	return err
 	// }
 
-	ret_err := protojson.Unmarshal(payload, resp.(proto.Message))
-	return ret_err
+	return codec.Unmarshal(b, resp)
+
 }
 
 func (ch *NotnetsChannel) NewStream(ctx context.Context, desc *grpc.StreamDesc, methodName string, opts ...grpc.CallOption) (grpc.ClientStream, error) {

@@ -1,10 +1,13 @@
 package notnets_grpc
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"sync"
 	"time"
@@ -12,14 +15,14 @@ import (
 	"github.com/EIRNf/notnets_grpc/internal"
 
 	"github.com/fullstorydev/grpchan"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
+
+	encoding_proto "google.golang.org/grpc/encoding/proto"
 )
 
 type NotnetsListener struct {
@@ -114,6 +117,12 @@ type NotnetsServer struct {
 
 	conns sync.Map
 
+	fixed_request_buffer    []byte
+	variable_request_buffer *bytes.Buffer
+	request_reader          *bufio.Reader
+
+	fixed_response_buffer []byte
+	response_reader       *bytes.Reader
 	// ShmQueueInfo  *QueueInfo
 	// responseQueue *Queue
 	// requestQeuue  *Queue
@@ -129,6 +138,15 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 		o.apply(&s)
 	}
 	s.conns = sync.Map{}
+
+	s.fixed_request_buffer = make([]byte, MESSAGE_SIZE)
+	s.variable_request_buffer = bytes.NewBuffer(nil)
+
+	s.request_reader = bufio.NewReader(s.variable_request_buffer)
+
+	s.fixed_response_buffer = make([]byte, MESSAGE_SIZE)
+	s.response_reader = bytes.NewReader(s.fixed_response_buffer)
+
 	return &s
 }
 
@@ -254,29 +272,29 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 	// defer close connection
 	// var wg sync.WaitGroup
 
-	buf := make([]byte, MESSAGE_SIZE)
-	b := bytes.NewBuffer(nil)
+	// fixed_request_buffer := make([]byte, MESSAGE_SIZE)
+	// variable_request_buffer := bytes.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
-		size, err := conn.Read(buf)
+		size, err := conn.Read(s.fixed_request_buffer)
 		if err != nil {
 			log.Error().Msgf("Read error: %v", err)
 		}
 
-		b.Write(buf)
+		s.variable_request_buffer.Write(s.fixed_request_buffer)
 		if size == 0 { //Have full payload
-			log.Trace().Msgf("Received request: %v", b)
+			log.Trace().Msgf("Received request: %v", s.variable_request_buffer)
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
-			s.handleMethod(conn, b)
+			s.handleMethod(conn, s.variable_request_buffer)
 		}
 	}
 	// Call handle method as we read of queue appropriately.
 }
 
 func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 	// log.Info().Msgf("Server: Message Received: %v \n ", b.String())
 
@@ -284,27 +302,33 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// request, JSON for now
 	// log.Info().Msgf("handle method: %s", s.timestamp_dif())
 
-	var messageRequest ShmMessage
-
-	decoder := json.NewDecoder(b)
-	err := decoder.Decode(&messageRequest)
+	s.request_reader.Reset(b)
+	tmp, err := http.ReadRequest(s.request_reader)
 	if err != nil {
-		log.Panic()
+		return
 	}
 
-	log.Trace().Msgf("Server: Deserialized Request: %v \n ", messageRequest)
+	// var messageRequest ShmMessage
+
+	// decoder := json.NewDecoder(b)
+	// err := decoder.Decode(&messageRequest)
+	// if err != nil {
+	// 	log.Panic()
+	// }
+
+	log.Trace().Msgf("Server: Deserialized Request: %v \n ", tmp)
 
 	// log.Info().Msgf("unmarshal: %s", s.timestamp_dif())
 
 	//Request context
-	ctx := s.Context(messageRequest.ctx)
+	ctx := s.Context(tmp.Context())
 
-	fullName := messageRequest.Method
-	strs := strings.SplitN(fullName[1:], "/", 2)
-	serviceName := strs[0]
-	methodName := strs[1]
+	fullName := tmp.RequestURI
+	strs := strings.SplitN(fullName[1:], "/", 3)
+	serviceName := strs[1]
+	methodName := strs[2]
 
-	ctx, cancel, err := contextFromHeaders(ctx, messageRequest.Headers)
+	ctx, cancel, err := contextFromHeaders(ctx, metadata.MD(tmp.Header))
 	if err != nil {
 		// writeError(w, http.StatusBadRequest)
 		return
@@ -316,7 +340,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	sd, handler := s.handlers.QueryService(serviceName)
 	if sd == nil {
 		// service name not found
-		status.Errorf(codes.Unimplemented, "service %s not implemented", messageRequest.Method)
+		status.Errorf(codes.Unimplemented, "service %s not implemented", tmp.Method)
 	}
 	// log.Info().Msgf("query service: %s", s.timestamp_dif())
 
@@ -331,11 +355,16 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// log.Info().Msgf("find unary: %s", s.timestamp_dif())
 
 	//Get Codec for content type.
-	// codec := encoding.GetCodec(grpcproto.Name)
+	codec := encoding.GetCodec(encoding_proto.Name)
+
+	req, err := io.ReadAll(tmp.Body)
+	if err != nil {
+		return
+	}
 
 	// Function to unmarshal payload using proto
 	dec := func(msg interface{}) error {
-		if err := protojson.Unmarshal(messageRequest.Payload, msg.(proto.Message)); err != nil {
+		if err := codec.Unmarshal(req, msg); err != nil {
 			return status.Error(codes.InvalidArgument, err.Error())
 		}
 		log.Trace().Msgf("Server: Deserialized Payload: %v \n ", msg)
@@ -366,40 +395,70 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		status.Errorf(codes.Unknown, "Handler error: %s ", err.Error())
 		//TODO: Error code must be sent back to client
 	}
+
 	// log.Info().Msgf("handle: %s", s.timestamp_dif())
 
 	log.Trace().Msgf("Server: Response: %v \n ", resp)
 
-	var resp_buffer []byte
-	// resp_buffer, err = codec.Marshal(resp)
-	resp_buffer, err = protojson.Marshal(resp.(proto.Message))
+	// var resp_buffer []byte
+	s.fixed_response_buffer, err = codec.Marshal(resp)
+	// resp_buffer, err = protojson.Marshal(resp.(proto.Message))
 
 	if err != nil {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
 
-	messageResponse := &ShmMessage{
-		Method:   methodName,
-		ctx:      ctx,
-		Headers:  sts.GetHeaders(),
-		Trailers: sts.GetTrailers(),
-		Payload:  resp_buffer,
+	s.response_reader.Reset(s.fixed_response_buffer)
+	// buf := bytes.NewReader(s.fixed_response_buffer)
+
+	t := &http.Response{
+		Status:        "200 OK",
+		StatusCode:    200,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Body:          io.NopCloser(s.response_reader),
+		ContentLength: int64(len(s.fixed_response_buffer)),
+		Request:       tmp,
+		Header:        make(http.Header, 0),
 	}
 
-	var serializedMessage []byte
-	serializedMessage, err = json.Marshal(messageResponse)
+	// var response *http.Response
+	// response, err := http.ReadResponse(bufio.NewReader(buf), tmp)
+
+	// var w http.ResponseWriter
+	// w.Write(resp_buffer)
+	// w.WriteHeader(http.StatusOK)
+
+	// err = response.Write(buf)
+	if err != nil {
+		return
+	}
+	// messageResponse := &ShmMessage{
+	// 	Method:   methodName,
+	// 	ctx:      ctx,
+	// 	Headers:  sts.GetHeaders(),
+	// 	Trailers: sts.GetTrailers(),
+	// 	Payload:  resp_buffer,
+	// }
+
+	// var serializedMessage []byte
+	// serializedMessage, err = json.Marshal(messageResponse)
 	// log.Info().Msgf("marshal: %s", s.timestamp_dif())
 	if err != nil {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
 
-	log.Trace().Msgf("Server: Serialized Response: %v \n ", serializedMessage)
+	// log.Trace().Msgf("Server: Serialized Response: %v \n ", serializedMessage)
 
 	// log.Info().Msgf("Server: Message Sent: %v \n ", serializedMessage)
 
 	//Begin write back
 	// message := []byte("{\"method\":\"SayHello\",\"context\":{\"Context\":{\"Context\":{\"Context\":{}}}},\"headers\":null,\"trailers\":null,\"payload\":\"\\n\\u000bHello world\"}")
-	conn.Write(serializedMessage)
+	finalbuf, _ := httputil.DumpResponse(t, true)
+	// var writeBuffer = &bytes.Buffer{}
+	// t.Write(writeBuffer)
+	conn.Write(finalbuf)
 }
 
 func (s *NotnetsServer) Context(ctx context.Context) context.Context {
