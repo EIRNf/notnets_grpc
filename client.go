@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"path"
+	"strings"
 
 	"github.com/EIRNf/notnets_grpc/internal"
 
@@ -19,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
 	encoding_proto "google.golang.org/grpc/encoding/proto"
+	"google.golang.org/grpc/metadata"
 )
 
 type NotnetsAddr struct {
@@ -277,8 +280,16 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	//Create goroutine to handle cancels?
 
 	b, err := io.ReadAll(tmp.Body)
+	tmp.Body.Close()
 	if err != nil {
 		return err
+	}
+
+	// gather headers and trailers
+	if len(copts.Headers) > 0 || len(copts.Trailers) > 0 {
+		if err := setMetadata(tmp.Header, copts); err != nil {
+			return err
+		}
 	}
 
 	// copts.SetHeaders(t)
@@ -306,6 +317,50 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 
 	return codec.Unmarshal(b, resp)
 
+}
+
+// asMetadata converts the given HTTP headers into GRPC metadata.
+func asMetadata(header http.Header) (metadata.MD, error) {
+	// metadata has same shape as http.Header,
+	md := metadata.MD{}
+	for k, vs := range header {
+		k = strings.ToLower(k)
+		for _, v := range vs {
+			if strings.HasSuffix(k, "-bin") {
+				vv, err := base64.URLEncoding.DecodeString(v)
+				if err != nil {
+					return nil, err
+				}
+				v = string(vv)
+			}
+			md[k] = append(md[k], v)
+		}
+	}
+	return md, nil
+}
+
+func setMetadata(h http.Header, copts *internal.CallOptions) error {
+	hdr, err := asMetadata(h)
+	if err != nil {
+		return err
+	}
+	tlr := metadata.MD{}
+
+	const trailerPrefix = "x-grpc-trailer-"
+
+	for k, v := range hdr {
+		if strings.HasPrefix(strings.ToLower(k), trailerPrefix) {
+			trailerName := k[len(trailerPrefix):]
+			if trailerName != "" {
+				tlr[trailerName] = v
+				delete(hdr, k)
+			}
+		}
+	}
+
+	copts.SetHeaders(hdr)
+	copts.SetTrailers(tlr)
+	return nil
 }
 
 func (ch *NotnetsChannel) NewStream(ctx context.Context, desc *grpc.StreamDesc, methodName string, opts ...grpc.CallOption) (grpc.ClientStream, error) {

@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/textproto"
 	"strings"
 	"sync"
 	"time"
@@ -149,6 +152,8 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 
 	return &s
 }
+
+var grpcDetailsHeader = textproto.CanonicalMIMEHeaderKey("X-GRPC-Details")
 
 // TODO: DO we need this?
 // var _ grpc.ServiceRegistrar = (*NotnetsServer)(nil)
@@ -414,16 +419,45 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// buf := bytes.NewReader(s.fixed_response_buffer)
 
 	t := &http.Response{
-		Status:        "200 OK",
-		StatusCode:    200,
-		Proto:         "HTTP/1.1",
-		ProtoMajor:    1,
-		ProtoMinor:    1,
+		// Status:        tmp.Response.Status,
+		// StatusCode:    200,
+		// Proto:         "HTTP/1.1",
+		// ProtoMajor:    1,
+		// ProtoMinor:    1,
 		Body:          io.NopCloser(s.response_reader),
-		ContentLength: int64(len(s.fixed_response_buffer)),
+		ContentLength: int64(len(s.fixed_response_buffer)), //is this okay
 		Request:       tmp,
-		Header:        make(http.Header, 0),
 	}
+
+	toHeaders(sts.GetHeaders(), t.Header, "")
+	toHeaders(sts.GetTrailers(), t.Header, "X-GRPC-Trailer-")
+
+	if err != nil {
+		st, _ := status.FromError(err)
+		if st.Code() == codes.OK {
+			// preserve all error details, but rewrite the code since we don't want
+			// to send back a non-error status when we know an error occured
+			stpb := st.Proto()
+			stpb.Code = int32(codes.Internal)
+			st = status.FromProto(stpb)
+		}
+		statProto := st.Proto()
+		t.Header.Set("X-GRPC-Status", fmt.Sprintf("%d:%s", statProto.Code, statProto.Message))
+		for _, d := range statProto.Details {
+			b, err := codec.Marshal(d)
+			if err != nil {
+				continue
+			}
+			str := base64.RawURLEncoding.EncodeToString(b)
+			t.Header.Add(grpcDetailsHeader, str)
+		}
+		// errHandler(tmp.Context(), st, t)
+		return
+	}
+
+	t.Status = "200 OK"
+	t.StatusCode = 200
+	t.Proto = "HTTP/1.1"
 
 	// var response *http.Response
 	// response, err := http.ReadResponse(bufio.NewReader(buf), tmp)
@@ -433,9 +467,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// w.WriteHeader(http.StatusOK)
 
 	// err = response.Write(buf)
-	if err != nil {
-		return
-	}
+	//If any error shows up propogate to respnse
 	// messageResponse := &ShmMessage{
 	// 	Method:   methodName,
 	// 	ctx:      ctx,
@@ -447,9 +479,9 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// var serializedMessage []byte
 	// serializedMessage, err = json.Marshal(messageResponse)
 	// log.Info().Msgf("marshal: %s", s.timestamp_dif())
-	if err != nil {
-		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
-	}
+	// if err != nil {
+	// 	status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
+	// }
 
 	// log.Trace().Msgf("Server: Serialized Response: %v \n ", serializedMessage)
 
