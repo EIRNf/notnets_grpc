@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -327,14 +328,14 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// log.Info().Msgf("unmarshal: %s", s.timestamp_dif())
 
 	//Request context
-	ctx := s.Context(tmp.Context())
+	ctx := tmp.Context()
 
 	fullName := tmp.RequestURI
 	strs := strings.SplitN(fullName[1:], "/", 3)
 	serviceName := strs[1]
 	methodName := strs[2]
 
-	ctx, cancel, err := contextFromHeaders(ctx, metadata.MD(tmp.Header))
+	ctx, cancel, err := contextFromHeaders(ctx, tmp.Header)
 	if err != nil {
 		// writeError(w, http.StatusBadRequest)
 		return
@@ -365,6 +366,11 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	codec := encoding.GetCodec(encoding_proto.Name)
 
 	req, err := io.ReadAll(tmp.Body)
+	if err != nil {
+		return
+	}
+
+	err = tmp.Body.Close()
 	if err != nil {
 		return
 	}
@@ -427,6 +433,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		Body:          io.NopCloser(s.response_reader),
 		ContentLength: int64(len(s.fixed_response_buffer)), //is this okay
 		Request:       tmp,
+		Header:        make(http.Header, 0),
 	}
 
 	toHeaders(sts.GetHeaders(), t.Header, "")
@@ -487,6 +494,9 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 
 	// log.Info().Msgf("Server: Message Sent: %v \n ", serializedMessage)
 
+	contentType := tmp.Header.Get("Content-Type")
+	t.Header.Set("Content-Type", contentType)
+	t.Header.Set("Content-Length", fmt.Sprintf("%d", len(s.fixed_response_buffer)))
 	//Begin write back
 	// message := []byte("{\"method\":\"SayHello\",\"context\":{\"Context\":{\"Context\":{\"Context\":{}}}},\"headers\":null,\"trailers\":null,\"payload\":\"\\n\\u000bHello world\"}")
 	finalbuf, _ := httputil.DumpResponse(t, true)
@@ -506,36 +516,39 @@ func (s *NotnetsServer) Context(ctx context.Context) context.Context {
 // using the given headers. The headers are converted to incoming metadata that
 // can be retrieved via metadata.FromIncomingContext. If the headers contain a
 // GRPC timeout, that is used to create a timeout for the returned context.
-func contextFromHeaders(parent context.Context, md metadata.MD) (context.Context, context.CancelFunc, error) {
+func contextFromHeaders(parent context.Context, h http.Header) (context.Context, context.CancelFunc, error) {
 	cancel := func() {} // default to no-op
-
+	md, err := asMetadata(h)
+	if err != nil {
+		return parent, cancel, err
+	}
 	ctx := metadata.NewIncomingContext(parent, md)
 
 	// deadline propagation
-	// timeout := md.Get("GRPC-Timeout")
-	// if timeout != "" {
-	// 	// See GRPC wire format, "Timeout" component of request: https://grpc.io/docs/guides/wire.html#requests
-	// 	suffix := timeout[len(timeout)-1]
-	// 	if timeoutVal, err := strconv.ParseInt(timeout[:len(timeout)-1], 10, 64); err == nil {
-	// 		var unit time.Duration
-	// 		switch suffix {
-	// 		case 'H':
-	// 			unit = time.Hour
-	// 		case 'M':
-	// 			unit = time.Minute
-	// 		case 'S':
-	// 			unit = time.Second
-	// 		case 'm':
-	// 			unit = time.Millisecond
-	// 		case 'u':
-	// 			unit = time.Microsecond
-	// 		case 'n':
-	// 			unit = time.Nanosecond
-	// 		}
-	// 		if unit != 0 {
-	// 			ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutVal)*unit)
-	// 		}
-	// 	}
-	// }
+	timeout := h.Get("GRPC-Timeout")
+	if timeout != "" {
+		// See GRPC wire format, "Timeout" component of request: https://grpc.io/docs/guides/wire.html#requests
+		suffix := timeout[len(timeout)-1]
+		if timeoutVal, err := strconv.ParseInt(timeout[:len(timeout)-1], 10, 64); err == nil {
+			var unit time.Duration
+			switch suffix {
+			case 'H':
+				unit = time.Hour
+			case 'M':
+				unit = time.Minute
+			case 'S':
+				unit = time.Second
+			case 'm':
+				unit = time.Millisecond
+			case 'u':
+				unit = time.Microsecond
+			case 'n':
+				unit = time.Nanosecond
+			}
+			if unit != 0 {
+				ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutVal)*unit)
+			}
+		}
+	}
 	return ctx, cancel, nil
 }

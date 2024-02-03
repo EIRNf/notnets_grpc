@@ -211,6 +211,8 @@ type NotnetsChannel struct {
 
 var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 
+const UnaryRpcContentType_V1 = "application/x-protobuf"
+
 func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, resp interface{}, opts ...grpc.CallOption) error {
 	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
@@ -229,6 +231,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		return err
 	}
 	h := headersFromContext(ctx)
+	h.Set("Content-Type", UnaryRpcContentType_V1)
 
 	codec := encoding.GetCodec(encoding_proto.Name)
 	ch.request_payload_buffer, err = codec.Marshal(req)
