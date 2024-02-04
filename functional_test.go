@@ -10,7 +10,7 @@ import (
 func TestGrpcOverSharedMemory(t *testing.T) {
 	// conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	// if err != nil {
-	// 	log.Fatalf("did not connect: %v", err)
+	// 	log.Fatalf("did not connect: %s", err)
 	// }
 	// defer conn.Close()
 
@@ -29,7 +29,7 @@ func TestGrpcOverSharedMemory(t *testing.T) {
 
 	cc, err := Dial("localhost", "http://127.0.0.1:8080/hello")
 	if err != nil {
-		log.Fatalf("did not connect: %v", err)
+		log.Fatalf("did not connect: %s", err)
 	}
 	// channel_tests_service.RunChannelTestCases(t, cc, true)
 	test_hello_service.RunChannelTestCases(t, cc, true)

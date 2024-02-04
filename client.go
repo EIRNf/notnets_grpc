@@ -169,12 +169,15 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 	ch.conn.isConnected = true
 
 	ch.request_payload_buffer = make([]byte, MESSAGE_SIZE)
-	ch.request_buffer = bytes.NewReader(ch.request_payload_buffer)
+	// ch.request_buffer = bytes.NewReader(ch.request_payload_buffer)
 
 	ch.variable_read_buffer = bytes.NewBuffer(nil)
 	ch.fixed_read_buffer = make([]byte, MESSAGE_SIZE)
 
-	ch.response_buffer = bufio.NewReader(ch.variable_read_buffer)
+	// ch.request_reader = bufio.NewReader(ch.variable_read_buffer)
+	ch.request_reader = bytes.NewBuffer(nil)
+
+	ch.response_reader = bufio.NewReader(ch.variable_read_buffer)
 
 	// writer = io.Writer
 
@@ -200,8 +203,9 @@ type NotnetsChannel struct {
 	// decoder json.Decoder
 	// encoder json.Encoder
 	// dec             sonic.Decoder
-	request_buffer  *bytes.Reader
-	response_buffer *bufio.Reader
+	request_reader *bytes.Buffer
+	// request_reader  *bufio.Reader
+	response_reader *bufio.Reader
 
 	//ctx
 	//connection
@@ -216,7 +220,7 @@ const UnaryRpcContentType_V1 = "application/x-protobuf"
 func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, resp interface{}, opts ...grpc.CallOption) error {
 	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
-	log.Trace().Msgf("Client:  Request: %v \n ", req)
+	log.Trace().Msgf("Client:  Request: %s \n ", req)
 
 	//Get Call Options
 	copts := internal.GetCallOptions(opts)
@@ -238,8 +242,9 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	if err != nil {
 		return err
 	}
-	ch.request_buffer.Reset(ch.request_payload_buffer)
-	r, err := http.NewRequest("POST", reqUrl, ch.request_buffer)
+	// ch.request_reader.Write(ch.request_payload_buffer)
+	request_reader := bytes.NewBuffer(ch.request_payload_buffer)
+	r, err := http.NewRequest("POST", reqUrl, request_reader)
 	if err != nil {
 		return err
 	}
@@ -248,7 +253,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	var writeBuffer = &bytes.Buffer{}
 	r.WithContext(ctx).Write(writeBuffer)
 
-	log.Trace().Msgf("Client: Serialized Request: %v \n ", writeBuffer.Bytes())
+	log.Trace().Msgf("Client: Serialized Request: %s \n ", writeBuffer)
 
 	//START MESSAGING
 	// pass into shared mem queue
@@ -272,10 +277,10 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
-	log.Trace().Msgf("Client: Serialized Response: %v \n ", ch.variable_read_buffer)
+	log.Trace().Msgf("Client: Serialized Response: %s \n ", ch.variable_read_buffer)
 
-	ch.response_buffer.Reset(ch.variable_read_buffer)
-	tmp, err := http.ReadResponse(ch.response_buffer, r)
+	ch.response_reader.Reset(ch.variable_read_buffer)
+	tmp, err := http.ReadResponse(ch.response_reader, r)
 	if err != nil {
 		return err
 	}
