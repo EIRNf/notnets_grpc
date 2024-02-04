@@ -211,6 +211,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		Payload: serializedPayload,
 	}
 
+	log.Trace().Msgf("Client: Deserialized Request: %v \n ", messageRequest)
+
 	// messageRequest := &ShmMessage{
 	// 	Method:   methodName,
 	// 	ctx:      ctx,
@@ -227,7 +229,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		return err
 	}
 
-	log.Trace().Msgf("Client: Serialized Request: %v \n ", serializedMessage)
+	log.Trace().Msgf("Client: Serialized Request: %s \n ", serializedMessage)
 
 	//START MESSAGING
 	// pass into shared mem queue
@@ -248,7 +250,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
-	log.Trace().Msgf("Client: Serialized Response: %v \n ", ch.variable_read_buffer)
+	log.Trace().Msgf("Client: Serialized Response: %s \n ", ch.variable_read_buffer.Bytes())
 
 	var messageResponse ShmMessage
 	dec := json.NewDecoder(ch.variable_read_buffer)

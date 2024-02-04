@@ -265,7 +265,7 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
 		b.Write(buf)
 		if size == 0 { //Have full payload
-			log.Trace().Msgf("Received request: %v", b)
+			log.Trace().Msgf("Server: Serialized Request: %s \n", b.Bytes())
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
 			s.handleMethod(conn, b)
@@ -369,7 +369,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	}
 	// log.Info().Msgf("handle: %s", s.timestamp_dif())
 
-	log.Trace().Msgf("Server: Response: %v \n ", resp)
+	log.Trace().Msgf("Server: Deserialized Response: %v \n ", resp)
 
 	var resp_buffer []byte
 	// resp_buffer, err = codec.Marshal(resp)
@@ -403,7 +403,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
 
-	log.Trace().Msgf("Server: Serialized Response: %v \n ", serializedMessage)
+	log.Trace().Msgf("Server: Serialized Response: %s \n ", serializedMessage)
 
 	// log.Info().Msgf("Server: Message Sent: %v \n ", serializedMessage)
 
