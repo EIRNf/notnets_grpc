@@ -3,7 +3,9 @@ package notnets_grpc
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
+	"path"
 
 	"github.com/EIRNf/notnets_grpc/internal"
 
@@ -189,27 +191,33 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	copts := internal.GetCallOptions(opts)
 
 	// Get headersFromContext
-	// reqUrl := ch.targetAddress
-	// reqUrl.Path = path.Join(reqUrl.Path, methodName)
-	// reqUrlStr := reqUrl.String()
+	reqUrl := "//" + ch.conn.remote_addr.Network()
+	reqUrl = path.Join(reqUrl, methodName)
 
-	// ctx, err := internal.ApplyPerRPCCreds(ctx, copts, fmt.Sprintf("shm:0%s", reqUrlStr), true)
-	// if err != nil {
-	// 	return err
-	// }
+	ctx, err := internal.ApplyPerRPCCreds(ctx, copts, fmt.Sprintf("shm:0%s", reqUrl), true)
+	if err != nil {
+		return err
+	}
 
 	serializedPayload, err := protojson.Marshal(req.(proto.Message))
 	if err != nil {
 		return err
 	}
 
-	messageRequest := &ShmMessage{
+	messageRequest := &ShmMessageReduced{
 		Method:  methodName,
-		ctx:     ctx,
 		Headers: headersFromContext(ctx),
-		// Trailers: trailersFrom,
+		// Trailers: ,
 		Payload: serializedPayload,
 	}
+
+	// messageRequest := &ShmMessage{
+	// 	Method:   methodName,
+	// 	ctx:      ctx,
+	// 	Headers:  headersFromContext(ctx),
+	// 	Trailers: trailersFrom,
+	// 	Payload:  serializedPayload,
+	// }
 
 	// we have the meta request
 	// Marshall to build rest of system

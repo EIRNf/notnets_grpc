@@ -2,7 +2,12 @@ package notnets_grpc
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"reflect"
+	"strconv"
+	"strings"
+	"time"
 	"unsafe"
 
 	// "github.com/golang/protobuf/proto"
@@ -38,6 +43,13 @@ type ShmMessage struct {
 	// Payload []byte `json:",string"`
 	Payload []byte
 	// Payload interface{}     `protobuf:"bytes,3,opt,name=method,proto3" json:"payload"`
+}
+
+type ShmMessageReduced struct {
+	Method   string      `json:"method"`
+	Headers  http.Header `json:",omitempty"`
+	Trailers http.Header `json:",omitempty"`
+	Payload  []byte
 }
 
 // func (s *ShmMessage) MarshalJSON() ([]byte, error) {
@@ -103,34 +115,126 @@ func (mes *ShmMessage) WithContext(ctx context.Context) *ShmMessage {
 	return mes2
 }
 
-//	func headersFromContext(ctx context.Context) http.Header {
-//		h := http.Header{}
-//		if md, ok := metadata.FromOutgoingContext(ctx); ok {
-//			toHeaders(md, h, "")
-//		}
-//		if deadline, ok := ctx.Deadline(); ok {
-//			timeout := time.Until(deadline)
-//			millis := int64(timeout / time.Millisecond)
-//			if millis <= 0 {
-//				millis = 1
-//			}
-//			h.Set("GRPC-Timeout", fmt.Sprintf("%dm", millis))
-//		}
-//		return h
-//	}
-//
+var reservedHeaders = map[string]struct{}{
+	"accept-encoding":   {},
+	"connection":        {},
+	"content-type":      {},
+	"content-length":    {},
+	"keep-alive":        {},
+	"te":                {},
+	"trailer":           {},
+	"transfer-encoding": {},
+	"upgrade":           {},
+}
+
+func toHeaders(md metadata.MD, h http.Header, prefix string) {
+	// binary headers must be base-64-encoded
+	for k, vs := range md {
+		lowerK := strings.ToLower(k)
+		if _, ok := reservedHeaders[lowerK]; ok {
+			// ignore reserved header keys
+			continue
+		}
+		isBin := strings.HasSuffix(lowerK, "-bin")
+		for _, v := range vs {
+			if isBin {
+				// v = base64.URLEncoding.EncodeToString([]byte(v))
+			}
+			h[k] = []string{v}
+			// h.Add(prefix+k, v)
+		}
+	}
+}
+
+func headersFromContext(ctx context.Context) http.Header {
+	h := http.Header{}
+	if md, ok := metadata.FromOutgoingContext(ctx); ok {
+		toHeaders(md, h, "")
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout := time.Until(deadline)
+		millis := int64(timeout / time.Millisecond)
+		if millis <= 0 {
+			millis = 1
+		}
+		h.Set("GRPC-Timeout", fmt.Sprintf("%dm", millis))
+	}
+	return h
+}
+
+// contextFromHeaders returns a child of the given context that is populated
+// using the given headers. The headers are converted to incoming metadata that
+// can be retrieved via metadata.FromIncomingContext. If the headers contain a
+// GRPC timeout, that is used to create a timeout for the returned context.
+func contextFromHeaders(parent context.Context, h http.Header) (context.Context, context.CancelFunc, error) {
+	cancel := func() {} // default to no-op
+	md, err := asMetadata(h)
+	if err != nil {
+		return parent, cancel, err
+	}
+	ctx := metadata.NewIncomingContext(parent, md)
+
+	// deadline propagation
+	timeout := h.Get("GRPC-Timeout")
+	if timeout != "" {
+		// See GRPC wire format, "Timeout" component of request: https://grpc.io/docs/guides/wire.html#requests
+		suffix := timeout[len(timeout)-1]
+		if timeoutVal, err := strconv.ParseInt(timeout[:len(timeout)-1], 10, 64); err == nil {
+			var unit time.Duration
+			switch suffix {
+			case 'H':
+				unit = time.Hour
+			case 'M':
+				unit = time.Minute
+			case 'S':
+				unit = time.Second
+			case 'm':
+				unit = time.Millisecond
+			case 'u':
+				unit = time.Microsecond
+			case 'n':
+				unit = time.Nanosecond
+			}
+			if unit != 0 {
+				ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutVal)*unit)
+			}
+		}
+	}
+	return ctx, cancel, nil
+}
+
+// asMetadata converts the given HTTP headers into GRPC metadata.
+func asMetadata(header http.Header) (metadata.MD, error) {
+	// metadata has same shape as http.Header,
+	md := metadata.MD{}
+	for k, vs := range header {
+		k = strings.ToLower(k)
+		for _, v := range vs {
+			// if strings.HasSuffix(k, "-bin") {
+			// 	vv, err := base64.URLEncoding.DecodeString(v)
+			// 	if err != nil {
+			// 		return nil, err
+			// 	}
+			// 	v = string(vv)
+			// }
+			md[k] = append(md[k], v)
+		}
+	}
+	return md, nil
+}
+
 // headersFromContext returns HTTP request headers to send to the remote host
 // based on the specified context. GRPC clients store outgoing metadata into the
 // context, which is translated into headers. Also, a context deadline will be
 // propagated to the server via GRPC timeout metadata.
-func headersFromContext(ctx context.Context) metadata.MD {
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if ok {
-		//great
-	}
+// func headersFromContext(ctx context.Context) metadata.MD {
+// 	md, ok := metadata.FromOutgoingContext(ctx)
+// 	if ok {
+// 		//great
+// 	}
 
-	return md
-}
+// 	return md
+// }
 
 func unsafeGetBytes(s string) []byte {
 	// fmt.Printf("unsafeGetBytes pointer: %p\n", unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&s)).Data))

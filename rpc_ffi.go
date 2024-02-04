@@ -49,7 +49,7 @@ import (
 // 	return C.send_rpc(cqp, cbuf, C.ulong(len(buf)))
 // }
 
-const MESSAGE_SIZE = 512
+const MESSAGE_SIZE = 1024
 
 type QueuePair struct {
 	ClientId        int

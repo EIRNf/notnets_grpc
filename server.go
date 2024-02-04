@@ -16,7 +16,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -284,7 +283,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// request, JSON for now
 	// log.Info().Msgf("handle method: %s", s.timestamp_dif())
 
-	var messageRequest ShmMessage
+	var messageRequest ShmMessageReduced
 
 	decoder := json.NewDecoder(b)
 	err := decoder.Decode(&messageRequest)
@@ -292,18 +291,20 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		log.Panic()
 	}
 
+	b.Reset()
+
 	log.Trace().Msgf("Server: Deserialized Request: %v \n ", messageRequest)
 
 	// log.Info().Msgf("unmarshal: %s", s.timestamp_dif())
 
 	//Request context
-	ctx := s.Context(messageRequest.ctx)
 
 	fullName := messageRequest.Method
 	strs := strings.SplitN(fullName[1:], "/", 2)
 	serviceName := strs[0]
 	methodName := strs[1]
 
+	ctx := context.Background()
 	ctx, cancel, err := contextFromHeaders(ctx, messageRequest.Headers)
 	if err != nil {
 		// writeError(w, http.StatusBadRequest)
@@ -378,13 +379,22 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
 
-	messageResponse := &ShmMessage{
+	// messageResponse := &ShmMessage{
+	// 	Method:   methodName,
+	// 	ctx:      ctx,
+	// 	Headers:  sts.GetHeaders(),
+	// 	Trailers: sts.GetTrailers(),
+	// 	Payload:  resp_buffer,
+	// }
+
+	messageResponse := &ShmMessageReduced{
 		Method:   methodName,
-		ctx:      ctx,
-		Headers:  sts.GetHeaders(),
-		Trailers: sts.GetTrailers(),
+		Headers:  make(http.Header, 0),
+		Trailers: make(http.Header, 0),
 		Payload:  resp_buffer,
 	}
+	toHeaders(sts.GetHeaders(), messageResponse.Headers, "")
+	toHeaders(sts.GetTrailers(), messageResponse.Trailers, "X-GRPC-Trailer-")
 
 	var serializedMessage []byte
 	serializedMessage, err = json.Marshal(messageResponse)
@@ -407,42 +417,4 @@ func (s *NotnetsServer) Context(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.Background()
-}
-
-// contextFromHeaders returns a child of the given context that is populated
-// using the given headers. The headers are converted to incoming metadata that
-// can be retrieved via metadata.FromIncomingContext. If the headers contain a
-// GRPC timeout, that is used to create a timeout for the returned context.
-func contextFromHeaders(parent context.Context, md metadata.MD) (context.Context, context.CancelFunc, error) {
-	cancel := func() {} // default to no-op
-
-	ctx := metadata.NewIncomingContext(parent, md)
-
-	// deadline propagation
-	// timeout := md.Get("GRPC-Timeout")
-	// if timeout != "" {
-	// 	// See GRPC wire format, "Timeout" component of request: https://grpc.io/docs/guides/wire.html#requests
-	// 	suffix := timeout[len(timeout)-1]
-	// 	if timeoutVal, err := strconv.ParseInt(timeout[:len(timeout)-1], 10, 64); err == nil {
-	// 		var unit time.Duration
-	// 		switch suffix {
-	// 		case 'H':
-	// 			unit = time.Hour
-	// 		case 'M':
-	// 			unit = time.Minute
-	// 		case 'S':
-	// 			unit = time.Second
-	// 		case 'm':
-	// 			unit = time.Millisecond
-	// 		case 'u':
-	// 			unit = time.Microsecond
-	// 		case 'n':
-	// 			unit = time.Nanosecond
-	// 		}
-	// 		if unit != 0 {
-	// 			ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutVal)*unit)
-	// 		}
-	// 	}
-	// }
-	return ctx, cancel, nil
 }
