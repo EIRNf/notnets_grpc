@@ -8,16 +8,22 @@ require (
 )
 
 require (
+	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect
+	github.com/chenzhuoyu/iasm v0.9.0 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
+	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 )
 
 require (
 	github.com/aclements/go-moremath v0.0.0-20210112150236-f10218a38794
+	github.com/bytedance/sonic v1.10.2
 	github.com/fullstorydev/grpchan v1.1.1
 	github.com/golang/protobuf v1.5.3
 	github.com/jhump/protoreflect v1.15.4 // indirect

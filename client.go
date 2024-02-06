@@ -168,16 +168,16 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 
 	ch.conn.isConnected = true
 
-	ch.request_payload_buffer = make([]byte, MESSAGE_SIZE)
+	// ch.request_payload_buffer = make([]byte, MESSAGE_SIZE)
 	// ch.request_buffer = bytes.NewReader(ch.request_payload_buffer)
 
-	ch.variable_read_buffer = bytes.NewBuffer(nil)
-	ch.fixed_read_buffer = make([]byte, MESSAGE_SIZE)
+	// ch.variable_read_buffer = bytes.NewBuffer(nil)
+	// ch.fixed_read_buffer = make([]byte, MESSAGE_SIZE)
 
 	// ch.request_reader = bufio.NewReader(ch.variable_read_buffer)
-	ch.request_reader = bytes.NewBuffer(nil)
+	// ch.request_reader = bytes.NewBuffer(nil)
 
-	ch.response_reader = bufio.NewReader(ch.variable_read_buffer)
+	// ch.response_reader = bufio.NewReader(ch.variable_read_buffer)
 
 	// writer = io.Writer
 
@@ -192,10 +192,10 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 type NotnetsChannel struct {
 	conn *NotnetsConn
 
-	request_payload_buffer []byte
+	// request_payload_buffer []byte
 
-	fixed_read_buffer    []byte
-	variable_read_buffer *bytes.Buffer
+	// fixed_read_buffer    []byte
+	// variable_read_buffer *bytes.Buffer
 
 	// writer io.Writer
 	// reader io.Reader
@@ -203,9 +203,9 @@ type NotnetsChannel struct {
 	// decoder json.Decoder
 	// encoder json.Encoder
 	// dec             sonic.Decoder
-	request_reader *bytes.Buffer
+	// request_reader *bytes.Buffer
 	// request_reader  *bufio.Reader
-	response_reader *bufio.Reader
+	// response_reader *bufio.Reader
 
 	//ctx
 	//connection
@@ -238,12 +238,12 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	h.Set("Content-Type", UnaryRpcContentType_V1)
 
 	codec := encoding.GetCodec(encoding_proto.Name)
-	ch.request_payload_buffer, err = codec.Marshal(req)
+	request_payload_buffer, err := codec.Marshal(req)
 	if err != nil {
 		return err
 	}
 	// ch.request_reader.Write(ch.request_payload_buffer)
-	request_reader := bytes.NewBuffer(ch.request_payload_buffer)
+	request_reader := bytes.NewBuffer(request_payload_buffer)
 	r, err := http.NewRequest("POST", reqUrl, request_reader)
 	if err != nil {
 		return err
@@ -259,28 +259,34 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// pass into shared mem queue
 	ch.conn.Write(writeBuffer.Bytes())
 
+	// var fixed_read_buffer []byte
+	// var variable_read_buffer bytes.Buffer
+
+	fixed_read_buffer := make([]byte, MESSAGE_SIZE)
+	variable_read_buffer := bytes.NewBuffer(nil)
+
 	//Receive Request
 	//iterate and append to dynamically allocated data until all data is read
 	var size int
 	//Most time is spend reading, wiating on Server to finish
 	for {
-		size, err = ch.conn.Read(ch.fixed_read_buffer)
+		size, err = ch.conn.Read(fixed_read_buffer)
 		if err != nil {
 			return err
 		}
 
 		//Add control flow to support cancel?
 
-		ch.variable_read_buffer.Write(ch.fixed_read_buffer)
+		variable_read_buffer.Write(fixed_read_buffer)
 		if size == 0 { //Have full payload
 			break
 		}
 	}
 
-	log.Trace().Msgf("Client: Serialized Response: %s \n ", ch.variable_read_buffer)
+	log.Trace().Msgf("Client: Serialized Response: %s \n ", variable_read_buffer)
 
-	ch.response_reader.Reset(ch.variable_read_buffer)
-	tmp, err := http.ReadResponse(ch.response_reader, r)
+	response_reader := bufio.NewReader(variable_read_buffer)
+	tmp, err := http.ReadResponse(response_reader, r)
 	if err != nil {
 		return err
 	}
