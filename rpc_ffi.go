@@ -1,6 +1,6 @@
 package notnets_grpc
 
-// #cgo CFLAGS: -O2 -Wall -pthread
+// #cgo CFLAGS: -O3 -Wall -pthread
 // #include <stdlib.h>
 // #include <stdio.h>
 // #include <errno.h>
@@ -49,7 +49,7 @@ import (
 // 	return C.send_rpc(cqp, cbuf, C.ulong(len(buf)))
 // }
 
-const MESSAGE_SIZE = 2048
+const MESSAGE_SIZE = 512
 
 type QueuePair struct {
 	ClientId        int
