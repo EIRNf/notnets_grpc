@@ -192,11 +192,11 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 			log.Trace().Msgf("Null queue_pair, backoff")
 
 			if tempDelay == 0 {
-				tempDelay = 5 * time.Second
+				tempDelay = 3 * time.Second
 			} else {
 				tempDelay *= 2
 			}
-			if max := 20 * time.Second; tempDelay > max {
+			if max := 25 * time.Second; tempDelay > max {
 				tempDelay = max
 			}
 			timer := time.NewTimer(tempDelay)
@@ -215,11 +215,11 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 			log.Trace().Msg("Already served queue_pair, backoff")
 
 			if tempDelay == 0 {
-				tempDelay = 5 * time.Second
+				tempDelay = 3 * time.Second
 			} else {
 				tempDelay *= 2
 			}
-			if max := 20 * time.Second; tempDelay > max {
+			if max := 25 * time.Second; tempDelay > max {
 				tempDelay = max
 			}
 			timer := time.NewTimer(tempDelay)
