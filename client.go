@@ -218,6 +218,9 @@ var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 const UnaryRpcContentType_V1 = "application/x-protobuf"
 
 func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, resp interface{}, opts ...grpc.CallOption) error {
+	//Tranlsate grpcCallOptions to Notnets call options
+
+	// runtime.LockOSThread()
 	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 	log.Trace().Msgf("Client:  Request: %s \n ", req)
@@ -329,6 +332,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// 	return err
 	// }
 
+	// runtime.UnlockOSThread()
 	return codec.Unmarshal(b, resp)
 
 }

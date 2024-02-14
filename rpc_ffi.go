@@ -1,8 +1,11 @@
 package notnets_grpc
 
 // #cgo CFLAGS: -O3 -Wall -pthread
-// #include <stdlib.h>
+// #define _GNU_SOURCE
 // #include <stdio.h>
+// #include <unistd.h>
+// #include <sched.h>
+// #include <stdlib.h>
 // #include <errno.h>
 // #include "notnets_shm/src/rpc.h"
 import "C"

@@ -75,7 +75,7 @@ func (lis *NotnetsListener) Addr() net.Addr {
 	return &lis.addr
 }
 
-// ServerOption is an option used when constructing a NewServer.
+// // ServerOption is an option used when constructing a NewServer.
 type ServerOption interface {
 	apply(*NotnetsServer)
 }
@@ -84,6 +84,14 @@ type serverOptFunc func(*NotnetsServer)
 
 func (fn serverOptFunc) apply(s *NotnetsServer) {
 	fn(s)
+}
+
+// WithServerUnaryInterceptor configures the gRPC-over-HTTP server to use the given
+// server interceptor for unary RPCs when dispatching.
+func UnaryInterceptor(interceptor grpc.UnaryServerInterceptor) ServerOption {
+	return serverOptFunc(func(s *NotnetsServer) {
+		s.unaryInterceptor = interceptor
+	})
 }
 
 // HandlerOption is an option to customize some aspect of the HTTP handler
@@ -138,6 +146,7 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 	var s NotnetsServer
 	// s.Server = grpc.NewServer()
 	s.handlers = grpchan.HandlerMap{}
+
 	for _, o := range opts {
 		o.apply(&s)
 	}
@@ -301,6 +310,8 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 }
 
 func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
+	// runtime.LockOSThread()
+
 	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 	// log.Info().Msgf("Server: Message Received: %s \n ", b.String())
@@ -503,6 +514,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// var writeBuffer = &bytes.Buffer{}
 	// t.Write(writeBuffer)
 	conn.Write(finalbuf)
+	// runtime.UnlockOSThread()
 }
 
 func (s *NotnetsServer) Context(ctx context.Context) context.Context {
