@@ -129,12 +129,12 @@ type NotnetsServer struct {
 
 	conns sync.Map
 
-	fixed_request_buffer    []byte
-	variable_request_buffer *bytes.Buffer
-	request_reader          *bufio.Reader
+	// fixed_request_buffer    []byte
+	// variable_request_buffer *bytes.Buffer
+	// request_reader          *bufio.Reader
 
-	fixed_response_buffer []byte
-	response_reader       *bytes.Reader
+	// fixed_response_buffer []byte
+	// response_reader       *bytes.Reader
 	// ShmQueueInfo  *QueueInfo
 	// responseQueue *Queue
 	// requestQeuue  *Queue
@@ -152,13 +152,13 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 	}
 	s.conns = sync.Map{}
 
-	s.fixed_request_buffer = make([]byte, MESSAGE_SIZE)
-	s.variable_request_buffer = bytes.NewBuffer(nil)
+	// s.fixed_request_buffer = make([]byte, MESSAGE_SIZE)
+	// s.variable_request_buffer = bytes.NewBuffer(nil)
 
-	s.request_reader = bufio.NewReader(s.variable_request_buffer)
+	// s.request_reader = bufio.NewReader(s.variable_request_buffer)
 
-	s.fixed_response_buffer = make([]byte, MESSAGE_SIZE)
-	s.response_reader = bytes.NewReader(s.fixed_response_buffer)
+	// s.fixed_response_buffer = make([]byte, MESSAGE_SIZE)
+	// s.response_reader = bytes.NewReader(s.fixed_response_buffer)
 
 	return &s
 }
@@ -288,22 +288,22 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 	// defer close connection
 	// var wg sync.WaitGroup
 
-	// fixed_request_buffer := make([]byte, MESSAGE_SIZE)
-	// variable_request_buffer := bytes.NewBuffer(nil)
+	fixed_request_buffer := make([]byte, MESSAGE_SIZE)
+	variable_request_buffer := bytes.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
-		size, err := conn.Read(s.fixed_request_buffer)
+		size, err := conn.Read(fixed_request_buffer)
 		if err != nil {
 			log.Error().Msgf("Read error: %s", err)
 		}
 
-		s.variable_request_buffer.Write(s.fixed_request_buffer)
+		variable_request_buffer.Write(fixed_request_buffer)
 		if size == 0 { //Have full payload
-			log.Trace().Msgf("Received request: %s", s.variable_request_buffer)
+			log.Trace().Msgf("Received request: %s", variable_request_buffer)
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
-			s.handleMethod(conn, s.variable_request_buffer)
+			s.handleMethod(conn, variable_request_buffer)
 		}
 	}
 	// Call handle method as we read of queue appropriately.
@@ -320,8 +320,9 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// request, JSON for now
 	// log.Info().Msgf("handle method: %s", s.timestamp_dif())
 
-	s.request_reader.Reset(b)
-	tmp, err := http.ReadRequest(s.request_reader)
+	// s.request_reader.Reset(b)
+	request_reader := bufio.NewReader(b)
+	tmp, err := http.ReadRequest(request_reader)
 	if err != nil {
 		return
 	}
@@ -425,15 +426,15 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	log.Trace().Msgf("Server: Response: %s \n ", resp)
 
 	// var resp_buffer []byte
-	s.fixed_response_buffer, err = codec.Marshal(resp)
+	fixed_response_buffer, err := codec.Marshal(resp)
 	// resp_buffer, err = protojson.Marshal(resp.(proto.Message))
 
 	if err != nil {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
 
-	s.response_reader.Reset(s.fixed_response_buffer)
-	// buf := bytes.NewReader(s.fixed_response_buffer)
+	// s.response_reader.Reset(s.fixed_response_buffer)
+	response_reader := bytes.NewReader(fixed_response_buffer)
 
 	t := &http.Response{
 		// Status:        tmp.Response.Status,
@@ -441,8 +442,8 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		// Proto:         "HTTP/1.1",
 		// ProtoMajor:    1,
 		// ProtoMinor:    1,
-		Body:          io.NopCloser(s.response_reader),
-		ContentLength: int64(len(s.fixed_response_buffer)), //is this okay
+		Body:          io.NopCloser(response_reader),
+		ContentLength: int64(len(fixed_response_buffer)), //is this okay
 		Request:       tmp,
 		Header:        make(http.Header, 0),
 	}
@@ -507,7 +508,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 
 	contentType := tmp.Header.Get("Content-Type")
 	t.Header.Set("Content-Type", contentType)
-	t.Header.Set("Content-Length", fmt.Sprintf("%d", len(s.fixed_response_buffer)))
+	t.Header.Set("Content-Length", fmt.Sprintf("%d", len(fixed_response_buffer)))
 	//Begin write back
 	// message := []byte("{\"method\":\"SayHello\",\"context\":{\"Context\":{\"Context\":{\"Context\":{}}}},\"headers\":null,\"trailers\":null,\"payload\":\"\\n\\u000bHello world\"}")
 	finalbuf, _ := httputil.DumpResponse(t, true)
