@@ -7,7 +7,7 @@ import (
 	chaintests "github.com/EIRNf/notnets_grpc/chain_tests"
 )
 
-func TestGrpcOverSharedMemoryChain(t *testing.T) {
+func TestGrpcChainOverSharedMemory(t *testing.T) {
 	// conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	// if err != nil {
 	// 	log.Fatalf("did not connect: %v", err)
