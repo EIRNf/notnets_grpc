@@ -18,6 +18,8 @@ func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	// svr := &grpchantesting.TestServer{}
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+
 	svc := &test_hello_service.TestServer{}
 	svr := NewNotnetsServer()
 
@@ -33,7 +35,7 @@ func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
-	time.Sleep(10 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// grpchantesting.RunChannelTestCases(t, &cc, true)
 	test_hello_service.RunChannelBenchmarkCases(b, cc, false)
