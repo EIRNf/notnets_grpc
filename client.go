@@ -122,7 +122,7 @@ func (c *NotnetsConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
+func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, error) {
 	//if using dialer always client
 	ch := &NotnetsChannel{
 		conn: &NotnetsConn{
@@ -137,7 +137,7 @@ func Dial(local_addr, remote_addr string) (*NotnetsChannel, error) {
 
 	var tempDelay time.Duration
 	log.Info().Msgf("Client: Opening New Channel %s,%s\n", local_addr, remote_addr)
-	ch.conn.queues = ClientOpen(local_addr, remote_addr, MESSAGE_SIZE)
+	ch.conn.queues = ClientOpen(local_addr, remote_addr, message_size)
 
 	if ch.conn.queues == nil { //if null means server doesn't exist yet
 		for {

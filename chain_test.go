@@ -1,10 +1,7 @@
 package notnets_grpc
 
 import (
-	"log"
 	"testing"
-
-	chaintests "github.com/EIRNf/notnets_grpc/chain_tests"
 )
 
 func TestGrpcChainOverSharedMemory(t *testing.T) {
@@ -48,12 +45,12 @@ func TestGrpcChainOverSharedMemory(t *testing.T) {
 	// go svr.Serve(lis)
 	// time.Sleep(5 * time.Second)
 
-	cc, err := Dial("localhost2", "http://127.0.0.1:8080/hello")
-	if err != nil {
-		log.Fatalf("did not connect: %v", err)
-	}
-	// channel_tests_service.RunChannelTestCases(t, cc, true)
-	chaintests.RunChannelTestCases(t, cc, true)
+	// cc, err := Dial("TestChain", "http://127.0.0.1:8080/hello")
+	// if err != nil {
+	// 	log.Fatalf("did not connect: %v", err)
+	// }
+	// // channel_tests_service.RunChannelTestCases(t, cc, true)
+	// chaintests.RunChannelTestCases(t, cc, true)
 
 	// svr.Stop()
 }

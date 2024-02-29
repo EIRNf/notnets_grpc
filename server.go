@@ -288,7 +288,7 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 	// defer close connection
 	// var wg sync.WaitGroup
 
-	fixed_request_buffer := make([]byte, MESSAGE_SIZE)
+	fixed_request_buffer := make([]byte, MESSAGE_SIZE) //MESSAGE_SIZE
 	variable_request_buffer := bytes.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
