@@ -20,7 +20,7 @@ func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 
 	// pprof.WriteHeapProfile(f)
 
-	cc, err := notnets_grpc.Dial("localhost", "http://127.0.0.1:8080/hello", 256)
+	cc, err := notnets_grpc.Dial("localhost", "http://127.0.0.1:8080/hello", notnets_grpc.MESSAGE_SIZE)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}

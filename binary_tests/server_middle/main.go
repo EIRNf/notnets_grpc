@@ -11,7 +11,7 @@ import (
 
 func main() {
 
-	cc1, err := notnets_grpc.Dial("http://127.0.0.1:8080/hello", "http://127.0.0.1:8080/goodbye", 256)
+	cc1, err := notnets_grpc.Dial("http://127.0.0.1:8080/hello", "http://127.0.0.1:8080/goodbye", notnets_grpc.MESSAGE_SIZE)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}

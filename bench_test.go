@@ -31,7 +31,7 @@ func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 
 	go svr.Serve(lis)
 
-	cc, err := Dial("BenchTest", "http://127.0.0.1:8080/hello", 256)
+	cc, err := Dial("BenchTest", "http://127.0.0.1:8080/hello", MESSAGE_SIZE)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}

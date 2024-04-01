@@ -28,7 +28,7 @@ func TestGrpcOverSharedMemory(t *testing.T) {
 
 	go svr.Serve(lis)
 
-	cc, err := Dial("FunctionalTest", "http://127.0.0.1:8080/hello", 256)
+	cc, err := Dial("FunctionalTest", "http://127.0.0.1:8080/hello", MESSAGE_SIZE)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
