@@ -219,7 +219,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 		}
 
 		//Check we have not accepted this in the past
-		_, ok := s.conns.Load(rawConn.(*NotnetsConn).queues.ClientId)
+		_, ok := s.conns.Load(rawConn.(*NotnetsConn).queues.queues.ClientId)
 		if ok {
 			log.Trace().Msg("Already served queue_pair, backoff")
 
@@ -240,7 +240,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 			}
 			continue
 		} else {
-			s.conns.Store(rawConn.(*NotnetsConn).queues.ClientId, rawConn)
+			s.conns.Store(rawConn.(*NotnetsConn).queues.queues.ClientId, rawConn)
 
 			//TODO, improve multithreaded with waitgroupcs
 			go func() {

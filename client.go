@@ -45,7 +45,7 @@ type NotnetsConn struct {
 	isConnected bool
 
 	mu             sync.RWMutex
-	queues         *QueuePair
+	queues         *QueueContext
 	local_addr     net.Addr
 	remote_addr    net.Addr
 	deadline       time.Time
@@ -162,9 +162,9 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 
 	}
 
-	log.Info().Msgf("Client: New Channel: %v \n ", ch.conn.queues.ClientId)
-	log.Info().Msgf("Client: New Channel RequestShmid: %v \n ", ch.conn.queues.RequestShmaddr)
-	log.Info().Msgf("Client: New Channel RespomseShmid: %v \n ", ch.conn.queues.ResponseShmaddr)
+	log.Info().Msgf("Client: New Channel: %v \n ", ch.conn.queues.queues.ClientId)
+	log.Info().Msgf("Client: New Channel RequestShmid: %v \n ", ch.conn.queues.queues.RequestShmaddr)
+	log.Info().Msgf("Client: New Channel RespomseShmid: %v \n ", ch.conn.queues.queues.ResponseShmaddr)
 
 	ch.conn.isConnected = true
 
