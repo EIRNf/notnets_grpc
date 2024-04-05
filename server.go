@@ -113,7 +113,7 @@ type NotnetsServer struct {
 
 	// quit    *grpcsync.Event
 	// done    *grpcsync.Event
-	serveWG sync.WaitGroup
+	// serveWG sync.WaitGroup
 
 	// ErrorLog *log.Logger
 

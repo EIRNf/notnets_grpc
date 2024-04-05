@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"path"
 	"strings"
+	"sync/atomic"
 
 	"github.com/EIRNf/notnets_grpc/internal"
 
@@ -132,6 +134,7 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 		},
 	}
 	ch.conn.isConnected = false
+	ch.dispatch_request = make(chan NotnetsRequest, 5) //Buffered channel for dispatch
 
 	// ch.conn.SetDeadline(time.Second * 30)
 
@@ -189,28 +192,72 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 	return ch, nil
 }
 
+func getReqID(payload []byte) uint32 {
+	return binary.LittleEndian.Uint32(payload[len(payload)-32:])
+}
+
+func setReqID(payload []byte, val uint32) []byte {
+	return binary.LittleEndian.AppendUint32(payload, val)
+}
+
+func (ch *NotnetsChannel) NotnetsRequest(in chan NotnetsRequest) {
+
+	var ops atomic.Uint32
+
+	for {
+		//Add stop conditional
+
+		req := <-in
+		id := ops.Add(1)
+		ch.live_requests[id] = req.response //Save response channel
+		mes := setReqID(req.payload.p, id)  //Append id to end of buffer, will extract on other end and remember for write back
+
+		ch.conn.Write(mes) //NEED TO SEND THE ID AS WELL DUH
+	}
+
+}
+
+func (ch *NotnetsChannel) NotnetsResponse() {
+
+	fixed_read_buffer := make([]byte, MESSAGE_SIZE)
+	variable_read_buffer := bytes.NewBuffer(nil)
+
+	//Receive Request
+	//iterate and append to dynamically allocated data until all data is read
+	//Most time is spend reading, wiating on Server to finish
+	for {
+		for {
+			size, err := ch.conn.Read(fixed_read_buffer)
+			if err != nil {
+				// return err
+			}
+
+			//Add control flow to support cancel?
+			variable_read_buffer.Write(fixed_read_buffer)
+			if size == 0 { //Have full payload
+				break
+			}
+		}
+
+	}
+
+}
+
+type NotnetsPayload struct {
+	p []byte
+}
+type NotnetsRequest struct {
+	payload  NotnetsPayload
+	response chan NotnetsPayload
+}
+
 type NotnetsChannel struct {
 	conn *NotnetsConn
 
-	// request_payload_buffer []byte
+	live_requests map[uint32]chan NotnetsPayload
 
-	// fixed_read_buffer    []byte
-	// variable_read_buffer *bytes.Buffer
-
-	// writer io.Writer
-	// reader io.Reader
-
-	// decoder json.Decoder
-	// encoder json.Encoder
-	// dec             sonic.Decoder
-	// request_reader *bytes.Buffer
-	// request_reader  *bufio.Reader
-	// response_reader *bufio.Reader
-
-	//ctx
-	//connection
-	//connectTimeout
-	//ConnectTimeWait
+	dispatch_request  chan NotnetsRequest
+	dispatch_response chan NotnetsPayload
 }
 
 var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
@@ -259,6 +306,9 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	log.Trace().Msgf("Client: Serialized Request: %s \n ", writeBuffer)
 
 	//START MESSAGING
+	response_channel := make(chan NotnetsPayload)
+	ch.dispatch_request <- NotnetsRequest{NotnetsPayload{writeBuffer.Bytes()}, response_channel}
+
 	// pass into shared mem queue
 	ch.conn.Write(writeBuffer.Bytes())
 
