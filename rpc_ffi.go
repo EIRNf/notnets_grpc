@@ -54,14 +54,15 @@ import (
 // 	return C.send_rpc(cqp, cbuf, C.ulong(len(buf)))
 // }
 
-const MESSAGE_SIZE = 512
+const MESSAGE_SIZE = 256
 
 type QueueContext struct {
 	queues *QueuePair
 	qt     C.QUEUE_TYPE
 	fn     unsafe.Pointer
-
 	pinner runtime.Pinner
+
+	ptr_ctx *C.queue_ctx
 }
 
 type QueuePair struct {
@@ -95,8 +96,9 @@ func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (r
 			ResponseShmaddr: _ret.queues.response_shmaddr,
 			Offset:          int(_ret.queues.offset),
 		},
-		qt: _ret.queue_type,
-		fn: unsafe.Pointer(_ret.fn),
+		qt:      _ret.queue_type,
+		fn:      unsafe.Pointer(_ret.fn),
+		ptr_ctx: _ret,
 		// pinner: new(runtime.Pinner),
 	}
 	log.Info().Msgf("Client: open response ret : %v \n ", ret)
@@ -106,22 +108,23 @@ func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (r
 
 // client_send_rpc
 func (conn *QueueContext) ClientSendRpc(buf []byte, size int) (ret int32) {
-	_conn := &C.queue_ctx{
-		queues: &C.queue_pair{
-			client_id:        C.int(conn.queues.ClientId),
-			request_shmaddr:  conn.queues.RequestShmaddr,
-			response_shmaddr: conn.queues.ResponseShmaddr,
-			offset:           C.int(conn.queues.Offset),
-		},
-		queue_type: conn.qt,
-		fn:         conn.fn,
-	}
+	// queues := &C.queue_pair{
+	// 	client_id:        C.int(conn.queues.ClientId),
+	// 	request_shmaddr:  conn.queues.RequestShmaddr,
+	// 	response_shmaddr: conn.queues.ResponseShmaddr,
+	// 	offset:           C.int(conn.queues.Offset),
+	// }
+	// _conn := &C.queue_ctx{
+	// 	queues:     queues,
+	// 	queue_type: conn.qt,
+	// 	fn:         conn.fn,
+	// }
 	// cbuf := C.CBytes(buf)
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
-	conn.pinner.Pin(_conn.queues)
-	_ret := C.client_send_rpc(_conn, _buf, _size)
-	conn.pinner.Unpin()
+	// conn.pinner.Pin(_conn.queues)
+	_ret := C.client_send_rpc(conn.ptr_ctx, _buf, _size)
+	// conn.pinner.Unpin()
 	// buf = C.GoBytes(cbuf, C.int(_size))
 	// defer C.free(cbuf)
 	ret = int32(_ret)
@@ -130,21 +133,22 @@ func (conn *QueueContext) ClientSendRpc(buf []byte, size int) (ret int32) {
 
 // client_receive_buf
 func (conn *QueueContext) ClientReceiveBuf(buf []byte, size int) (ret int) {
-	_conn := &C.queue_ctx{
-		queues: &C.queue_pair{
-			client_id:        C.int(conn.queues.ClientId),
-			request_shmaddr:  conn.queues.RequestShmaddr,
-			response_shmaddr: conn.queues.ResponseShmaddr,
-			offset:           C.int(conn.queues.Offset),
-		},
-		queue_type: conn.qt,
-		fn:         conn.fn,
-	}
+	// queues := &C.queue_pair{
+	// 	client_id:        C.int(conn.queues.ClientId),
+	// 	request_shmaddr:  conn.queues.RequestShmaddr,
+	// 	response_shmaddr: conn.queues.ResponseShmaddr,
+	// 	offset:           C.int(conn.queues.Offset),
+	// }
+	// _conn := &C.queue_ctx{
+	// 	queues:     queues,
+	// 	queue_type: conn.qt,
+	// 	fn:         conn.fn,
+	// }
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
-	conn.pinner.Pin(_conn.queues)
-	_ret := C.client_receive_buf(_conn, _buf, _size)
-	conn.pinner.Unpin()
+	// conn.pinner.Pin(_conn.queues)
+	_ret := C.client_receive_buf(conn.ptr_ctx, _buf, _size)
+	// conn.pinner.Unpin()
 	ret = int(_ret)
 	return
 }
@@ -191,8 +195,9 @@ func (handler *ServerContext) Accept() (ret *QueueContext) {
 			ResponseShmaddr: _ret.queues.response_shmaddr,
 			Offset:          int(_ret.queues.offset),
 		},
-		qt: _ret.queue_type,
-		fn: _ret.fn,
+		qt:      _ret.queue_type,
+		fn:      _ret.fn,
+		ptr_ctx: _ret,
 	}
 	log.Info().Msgf("Server: open response ret new : %v \n ", ret)
 	C.fflush(C.stdout)
@@ -215,23 +220,25 @@ func (handler *ServerContext) Shutdown() {
 
 // server_receive_buf
 func (client *QueueContext) ServerReceiveBuf(buf []byte, size int) (ret int) {
-	_client := &C.queue_ctx{
-		queues: &C.queue_pair{
-			client_id:        C.int(client.queues.ClientId),
-			request_shmaddr:  client.queues.RequestShmaddr,
-			response_shmaddr: client.queues.ResponseShmaddr,
-			offset:           C.int(client.queues.Offset),
-		},
-		queue_type: client.qt,
-		fn:         client.fn,
-	}
+
+	// queues := &C.queue_pair{
+	// 	client_id:        C.int(client.queues.ClientId),
+	// 	request_shmaddr:  client.queues.RequestShmaddr,
+	// 	response_shmaddr: client.queues.ResponseShmaddr,
+	// 	offset:           C.int(client.queues.Offset),
+	// }
+	// _client := &C.queue_ctx{
+	// 	queues:     queues,
+	// 	queue_type: client.qt,
+	// 	fn:         client.fn,
+	// }
 	// cbuf := C.CBytes(buf)
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
 	// client.pinner.Pin(_buf)
-	client.pinner.Pin(_client.queues)
-	_ret := C.server_receive_buf(_client, _buf, _size)
-	client.pinner.Unpin()
+	// client.pinner.Pin(_client.queues)
+	_ret := C.server_receive_buf(client.ptr_ctx, _buf, _size)
+	// client.pinner.Unpin()
 	// buf = C.GoBytes(cbuf, C.int(_size))
 	// defer C.free(cbuf)
 	ret = int(_ret)
@@ -240,22 +247,23 @@ func (client *QueueContext) ServerReceiveBuf(buf []byte, size int) (ret int) {
 
 // server_send_rpc
 func (client *QueueContext) ServerSendRpc(buf []byte, size int) (ret int32) {
-	_client := &C.queue_ctx{
-		queues: &C.queue_pair{
-			client_id:        C.int(client.queues.ClientId),
-			request_shmaddr:  client.queues.RequestShmaddr,
-			response_shmaddr: client.queues.ResponseShmaddr,
-			offset:           C.int(client.queues.Offset),
-		},
-		queue_type: client.qt,
-		fn:         client.fn,
-	}
+	// queues := &C.queue_pair{
+	// 	client_id:        C.int(client.queues.ClientId),
+	// 	request_shmaddr:  client.queues.RequestShmaddr,
+	// 	response_shmaddr: client.queues.ResponseShmaddr,
+	// 	offset:           C.int(client.queues.Offset),
+	// }
+	// _client := &C.queue_ctx{
+	// 	queues:     queues,
+	// 	queue_type: client.qt,
+	// 	fn:         client.fn,
+	// }
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
 	// client.pinner.Pin(_buf)
-	client.pinner.Pin(_client.queues)
-	_ret := C.server_send_rpc(_client, _buf, _size)
-	client.pinner.Unpin()
+	// client.pinner.Pin(_client.queues)
+	_ret := C.server_send_rpc(client.ptr_ctx, _buf, _size)
+	// client.pinner.Unpin()
 	ret = int32(_ret)
 	return
 }
