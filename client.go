@@ -44,7 +44,8 @@ type NotnetsConn struct {
 	ClientSide  bool
 	isConnected bool
 
-	mu             sync.RWMutex
+	read_mu        sync.Mutex
+	write_mu       sync.Mutex
 	queues         *QueueContext
 	local_addr     net.Addr
 	remote_addr    net.Addr
@@ -55,7 +56,7 @@ type NotnetsConn struct {
 
 // TODO: Error handling, timeouts
 func (c *NotnetsConn) Read(b []byte) (n int, err error) {
-	c.mu.RLock()
+	c.read_mu.Lock()
 	var leftover_bytes int
 	if c.ClientSide {
 		leftover_bytes = c.queues.ClientReceiveBuf(b, len(b))
@@ -64,20 +65,20 @@ func (c *NotnetsConn) Read(b []byte) (n int, err error) {
 	} else { //Server read
 		leftover_bytes = c.queues.ServerReceiveBuf(b, len(b))
 	}
-	c.mu.RUnlock()
+	c.read_mu.Unlock()
 	return leftover_bytes, nil
 }
 
 // TODO: Error handling, timeouts
 func (c *NotnetsConn) Write(b []byte) (n int, err error) {
-	c.mu.Lock()
+	c.write_mu.Lock()
 	var size int32
 	if c.ClientSide {
 		size = c.queues.ClientSendRpc(b, len(b))
 	} else { //Server read
 		size = c.queues.ServerSendRpc(b, len(b))
 	}
-	c.mu.Unlock()
+	c.write_mu.Unlock()
 	return int(size), nil
 }
 
