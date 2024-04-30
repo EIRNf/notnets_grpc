@@ -201,25 +201,45 @@ func setReqID(payload []byte, val uint32) []byte {
 	return binary.LittleEndian.AppendUint32(payload, val)
 }
 
-func (ch *NotnetsChannel) NotnetsRequest(in chan NotnetsRequest) {
+type NotnetsPayload struct {
+	p []byte
+}
+type NotnetsRequest struct {
+	payload  NotnetsPayload
+	response chan NotnetsPayload
+}
 
+type NotnetsChannel struct {
+	conn *NotnetsConn
+
+	live_requests map[uint32]chan NotnetsPayload
+
+	dispatch_request  chan NotnetsRequest
+	dispatch_response chan NotnetsPayload
+}
+
+// Send Request to Dispatch and wait for response
+func (ch *NotnetsChannel) MakeNotnetsRequest(in NotnetsRequest) NotnetsPayload {
+	ch.dispatch_request <- in
+	return <-in.response
+}
+
+// Sends channel requests through shm
+func (ch *NotnetsChannel) WriteRequest() {
 	var ops atomic.Uint32
-
 	for {
 		//Add stop conditional
-
-		req := <-in
+		req := <-ch.dispatch_request
 		id := ops.Add(1)
 		ch.live_requests[id] = req.response //Save response channel
 		mes := setReqID(req.payload.p, id)  //Append id to end of buffer, will extract on other end and remember for write back
 
 		ch.conn.Write(mes) //NEED TO SEND THE ID AS WELL DUH
 	}
-
 }
 
-func (ch *NotnetsChannel) NotnetsResponse() {
-
+// Reads channel responses from shm
+func (ch *NotnetsChannel) ReadResponse() {
 	fixed_read_buffer := make([]byte, MESSAGE_SIZE)
 	variable_read_buffer := bytes.NewBuffer(nil)
 
@@ -239,26 +259,12 @@ func (ch *NotnetsChannel) NotnetsResponse() {
 				break
 			}
 		}
-
+		//Write back
+		response := variable_read_buffer.Bytes()
+		response_chan := ch.live_requests[getReqID(response)]
+		response_chan <- NotnetsPayload{response[:len(response)-32]}
 	}
 
-}
-
-type NotnetsPayload struct {
-	p []byte
-}
-type NotnetsRequest struct {
-	payload  NotnetsPayload
-	response chan NotnetsPayload
-}
-
-type NotnetsChannel struct {
-	conn *NotnetsConn
-
-	live_requests map[uint32]chan NotnetsPayload
-
-	dispatch_request  chan NotnetsRequest
-	dispatch_response chan NotnetsPayload
 }
 
 var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
@@ -309,6 +315,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	//START MESSAGING
 	response_channel := make(chan NotnetsPayload)
 	ch.dispatch_request <- NotnetsRequest{NotnetsPayload{writeBuffer.Bytes()}, response_channel}
+
+	buf_response <- response_channel
 
 	// pass into shared mem queue
 	ch.conn.Write(writeBuffer.Bytes())

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EIRNf/notnets_grpc/internal"
@@ -126,8 +127,8 @@ type NotnetsServer struct {
 
 	// Map of queue pairs for boolean of active or inactive connections
 	// conns map[int]*QueuePair
-
 	conns sync.Map
+
 
 	// fixed_request_buffer    []byte
 	// variable_request_buffer *bytes.Buffer
@@ -240,6 +241,19 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 			}
 			continue
 		} else {
+
+
+
+			ntransport := &NotnetsServerTransport{
+				conn : rawConn,
+				dispatch_response: make(chan NotnetsPayload, 5),
+				live_responses: ,
+			}
+
+			go func() {
+				ntransport.WriteResponse()
+			}
+
 			s.conns.Store(rawConn.(*NotnetsConn).queues.queues.ClientId, rawConn)
 
 			//TODO, improve multithreaded with waitgroupcs
@@ -259,7 +273,6 @@ func (s *NotnetsServer) Stop() {
 }
 
 // Fork a goroutine to handle just-accepted connection
-
 func (s *NotnetsServer) handleConnection(conn net.Conn) {
 	//Called from Serve
 	log.Info().Msgf("New client connection: %s", conn)
@@ -282,15 +295,25 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 // Actually handles the incoming message flow from the client
 // Uses predeclared function
 func (s *NotnetsServer) serveRequests(conn net.Conn) {
-
 	log.Trace().Msgf("Serving: %s", conn)
 
-	// defer close connection
-	// var wg sync.WaitGroup
+	//Instantiate dispatch go routine
+
+	go Respon
+
+	var num_workers = 5
+	var wg sync.WaitGroup
+
+	for i := 0; i < num_workers; i++ {}
+		worker := NewRequestHandler()
+		wg.Add(1)
+
+
+	}
 
 	fixed_request_buffer := make([]byte, MESSAGE_SIZE) //MESSAGE_SIZE
 	variable_request_buffer := bytes.NewBuffer(nil)
-	// s.serveWG.Add(1)
+
 	//iterate and append to dynamically allocated data until all data is read
 	for {
 		size, err := conn.Read(fixed_request_buffer)
@@ -304,37 +327,33 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
 			s.handleMethod(conn, variable_request_buffer)
+
+			//Once we have a request we need to parse and handle it.
+			// Ideally without blocking on any other requests
+			// Launch go routine to process incoming requests,
+			// and give a function call back that the response
+			// dispatch can handle.
+			// Must append id tag at end of payload, have the function do that
+
 		}
 	}
 	// Call handle method as we read of queue appropriately.
 }
 
+func (s *NotnetsServer) HandleStreams(func(dispatch chan NotnetsPayload)) {
+
+}
+
 func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
-	// runtime.LockOSThread()
-
-	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
-
-	// log.Info().Msgf("Server: Message Received: %s \n ", b.String())
-
 	// Need a method to unmarshall general struct of
 	// request, JSON for now
 	// log.Info().Msgf("handle method: %s", s.timestamp_dif())
 
-	// s.request_reader.Reset(b)
 	request_reader := bufio.NewReader(b)
 	tmp, err := http.ReadRequest(request_reader)
 	if err != nil {
 		return
 	}
-
-	// var messageRequest ShmMessage
-
-	// decoder := json.NewDecoder(b)
-	// err := decoder.Decode(&messageRequest)
-	// if err != nil {
-	// 	log.Panic()
-	// }
-
 	log.Trace().Msgf("Server: Deserialized Request: %v \n ", tmp)
 
 	// log.Info().Msgf("unmarshal: %s", s.timestamp_dif())
@@ -395,17 +414,6 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 		log.Trace().Msgf("Server: Deserialized Payload: %s \n ", msg)
 		return nil
 	}
-
-	// Function to unmarshal payload using proto
-	// dec := func(msg interface{}) error {
-	// 	val := messageRequest.Payload
-	// 	if err := codec.Unmarshal(val, msg); err != nil {
-	// 		log.Info().Msgf("Server: Deserialized Payload: %s \n ", msg)
-
-	// 		return status.Error(codes.InvalidArgument, err.Error())
-	// 	}
-	// 	return nil
-	// }
 
 	// Implements server transport stream
 	sts := internal.UnaryServerTransportStream{Name: methodName}
@@ -564,4 +572,67 @@ func contextFromHeaders(parent context.Context, h http.Header) (context.Context,
 		}
 	}
 	return ctx, cancel, nil
+}
+
+type NotnetsServerTransport struct {
+	conn *NotnetsConn
+
+	live_responses map[uint32]chan NotnetsPayload
+	dispatch_response chan NotnetsPayload
+}
+
+// Sends channel requests through shm
+func (ch *NotnetsServerTransport) ReadRequest() {
+	fixed_read_buffer := make([]byte, MESSAGE_SIZE)
+	variable_read_buffer := bytes.NewBuffer(nil)
+
+	//Receive Request
+	//iterate and append to dynamically allocated data until all data is read
+	//Most time is spend reading, wiating on Server to finish
+	for {
+		for {
+			size, err := ch.conn.Read(fixed_read_buffer)
+			if err != nil {
+				// return err
+			}
+
+			//Add control flow to support cancel?
+			variable_read_buffer.Write(fixed_read_buffer)
+			if size == 0 { //Have full payload
+				break
+			}
+		}
+		//Write back
+		request := variable_read_buffer.Bytes()
+		ch.live_responses[getReqID(request)] = request
+
+		response_chan := ch.live_responses[getReqID(request)]
+		response_chan <- NotnetsPayload{response[:len(response)-32]}
+	}
+
+	var ops atomic.Uint32
+	for {
+		//Add stop conditional
+		req := <-ch.dispatch_request
+		id := ops.Add(1)
+		ch.live_responses[id] = req.response //Save response channel
+		mes := setReqID(req.payload.p, id)   //Append id to end of buffer, will extract on other end and remember for write back
+
+		ch.conn.Write(mes) //NEED TO SEND THE ID AS WELL DUH
+	}
+}
+
+// Write back response, long lived dispatch thread.
+func (ch *NotnetsServerTransport) WriteResponse() {
+
+	var ops atomic.Uint32
+	for {
+		//Add stop conditional
+		req := <-ch.dispatch_request
+		id := ops.Add(1)
+		ch.live_responses[id] = req.response //Save response channel
+		mes := setReqID(req.payload.p, id)   //Append id to end of buffer, will extract on other end and remember for write back
+
+		ch.conn.Write(mes) //NEED TO SEND THE ID AS WELL DUH
+	}
 }
