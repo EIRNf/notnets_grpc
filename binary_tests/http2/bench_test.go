@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"log"
-	"runtime/debug"
 	"testing"
 
 	"github.com/EIRNf/notnets_grpc/test_hello_service"
@@ -17,7 +16,7 @@ var (
 )
 
 func BenchmarkServer(b *testing.B) {
-	debug.SetGCPercent(-1)
+	// debug.SetGCPercent(-1)
 	// runtime.MemProfileRate = 1
 
 	conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))

@@ -54,7 +54,7 @@ import (
 // 	return C.send_rpc(cqp, cbuf, C.ulong(len(buf)))
 // }
 
-const MESSAGE_SIZE = 2048
+const MESSAGE_SIZE = 264
 
 type QueueContext struct {
 	queues *QueuePair
@@ -86,7 +86,7 @@ func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (r
 	_destinationAddr := C.CString(destinationAddr)
 	defer C.free(unsafe.Pointer(_destinationAddr))
 	_messageSize := C.int(messageSize)
-	_ret := C.client_open(_sourceAddr, _destinationAddr, _messageSize, C.POLL)
+	_ret := C.client_open(_sourceAddr, _destinationAddr, _messageSize, C.SEM)
 	log.Info().Msgf("Client: open response : %v \n ", _ret)
 	if _ret == nil {
 		return nil //Pass on null for retry

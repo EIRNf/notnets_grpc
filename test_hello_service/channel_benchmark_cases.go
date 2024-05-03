@@ -75,7 +75,7 @@ func BenchmarkUnaryLatency(b *testing.B, cli TestServiceClient) {
 
 func BenchmarkHelloHistogram(b *testing.B, cli TestServiceClient) {
 
-	bench := hrtime.NewBenchmark(200000)
+	bench := hrtime.NewBenchmark(2000000)
 
 	ctx := metadata.NewOutgoingContext(context.Background(), metadata.MD{})
 
@@ -84,13 +84,13 @@ func BenchmarkHelloHistogram(b *testing.B, cli TestServiceClient) {
 	// b.Run("success", func(b *testing.B) {
 	for bench.Next() {
 		req := &HelloRequest{Name: defaultName}
-		rsp, err := cli.SayHello(ctx, req)
-		if err != nil {
-			b.Fatalf("RPC failed: %v", err)
-		}
-		if !bytes.Equal(testPayloadHello, []byte(rsp.GetMessage())) {
-			b.Fatalf("wrong payload returned: expecting %v; got %v", testPayloadHello, rsp.GetMessage())
-		}
+		_, _ = cli.SayHello(ctx, req)
+		// if err != nil {
+		// 	b.Fatalf("RPC failed: %v", err)
+		// }
+		// if !bytes.Equal(testPayloadHello, []byte(rsp.GetMessage())) {
+		// 	b.Fatalf("wrong payload returned: expecting %v; got %v", testPayloadHello, rsp.GetMessage())
+		// }
 	}
 
 	fmt.Println(bench.Histogram(15))

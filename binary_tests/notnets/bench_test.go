@@ -13,6 +13,9 @@ import (
 func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 
 	// debug.SetGCPercent(-1)
+	// debug.SetMaxStack(2e+9)
+	// debug.SetMemoryLimit(-1)
+
 	// runtime.MemProfileRate = 1
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 

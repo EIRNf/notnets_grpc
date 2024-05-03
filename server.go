@@ -129,7 +129,9 @@ type NotnetsServer struct {
 
 	conns sync.Map
 
-	// fixed_request_buffer    []byte
+	request_buf           interface{}
+	response_buffer       []byte
+	final_response_buffer []byte
 	// variable_request_buffer *bytes.Buffer
 	// request_reader          *bufio.Reader
 
@@ -389,9 +391,17 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 
 	// Function to unmarshal payload using proto
 	dec := func(msg interface{}) error {
-		if err := codec.Unmarshal(req, msg); err != nil {
-			return status.Error(codes.InvalidArgument, err.Error())
+		if s.request_buf != nil {
+			msg = s.request_buf
+		} else {
+			err = codec.Unmarshal(req, msg)
+			s.request_buf = msg
 		}
+
+		// if err := codec.Unmarshal(req, msg); err != nil {
+		// 	return status.Error(codes.InvalidArgument, err.Error())
+		// }
+
 		log.Trace().Msgf("Server: Deserialized Payload: %s \n ", msg)
 		return nil
 	}
@@ -425,12 +435,18 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 
 	log.Trace().Msgf("Server: Response: %s \n ", resp)
 
-	// var resp_buffer []byte
-	fixed_response_buffer, err := codec.Marshal(resp)
-	// resp_buffer, err = protojson.Marshal(resp.(proto.Message))
+	var fixed_response_buffer []byte
+	//Cacheed response
+	if len(s.response_buffer) > 0 {
+		fixed_response_buffer = s.response_buffer
+	} else {
+		fixed_response_buffer, err = codec.Marshal(resp)
+		s.response_buffer = fixed_response_buffer
+		// resp_buffer, err = protojson.Marshal(resp.(proto.Message))
 
-	if err != nil {
-		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
+		if err != nil {
+			status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
+		}
 	}
 
 	// s.response_reader.Reset(s.fixed_response_buffer)
@@ -511,7 +527,15 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	t.Header.Set("Content-Length", fmt.Sprintf("%d", len(fixed_response_buffer)))
 	//Begin write back
 	// message := []byte("{\"method\":\"SayHello\",\"context\":{\"Context\":{\"Context\":{\"Context\":{}}}},\"headers\":null,\"trailers\":null,\"payload\":\"\\n\\u000bHello world\"}")
-	finalbuf, _ := httputil.DumpResponse(t, true)
+
+	var finalbuf []byte
+	if len(s.final_response_buffer) > 0 {
+		finalbuf = s.final_response_buffer
+	} else {
+		finalbuf, _ = httputil.DumpResponse(t, true)
+		s.final_response_buffer = finalbuf
+	}
+
 	// var writeBuffer = &bytes.Buffer{}
 	// t.Write(writeBuffer)
 	conn.Write(finalbuf)

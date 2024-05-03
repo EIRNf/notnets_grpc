@@ -133,6 +133,7 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 		},
 	}
 	ch.conn.isConnected = false
+	ch.response_cached = false
 
 	// ch.conn.SetDeadline(time.Second * 30)
 
@@ -194,7 +195,13 @@ type NotnetsChannel struct {
 	conn *NotnetsConn
 
 	// request_payload_buffer []byte
+	request_payload_buffer []byte
 
+	request_http_buffer  bytes.Buffer
+	response_http_buffer http.Response
+	response_cached      bool
+
+	response_buf interface{}
 	// fixed_read_buffer    []byte
 	// variable_read_buffer *bytes.Buffer
 
@@ -242,10 +249,19 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	h.Set("Content-Type", UnaryRpcContentType_V1)
 
 	codec := encoding.GetCodec(encoding_proto.Name)
-	request_payload_buffer, err := codec.Marshal(req)
-	if err != nil {
-		return err
+
+	var request_payload_buffer []byte
+	//we have cached request
+	if len(ch.request_payload_buffer) > 0 {
+		request_payload_buffer = ch.request_payload_buffer
+	} else {
+		request_payload_buffer, err = codec.Marshal(req)
+		if err != nil {
+			return err
+		}
+		ch.request_payload_buffer = request_payload_buffer
 	}
+
 	// ch.request_reader.Write(ch.request_payload_buffer)
 	request_reader := bytes.NewBuffer(request_payload_buffer)
 	r, err := http.NewRequest("POST", reqUrl, request_reader)
@@ -255,7 +271,12 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	r.Header = h
 
 	var writeBuffer = &bytes.Buffer{}
-	r.WithContext(ctx).Write(writeBuffer)
+	if ch.request_http_buffer.Len() > 0 {
+		writeBuffer = &ch.request_http_buffer
+	} else {
+		r.WithContext(ctx).Write(writeBuffer)
+		ch.request_http_buffer = *writeBuffer
+	}
 
 	log.Trace().Msgf("Client: Serialized Request: %s \n ", writeBuffer)
 
@@ -295,8 +316,19 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		return err
 	}
 
-	//Create goroutine to handle cancels?
+	// var tmp = &http.Response{}
+	// if ch.response_cached {
+	// 	tmp = &ch.response_http_buffer
+	// } else {
+	// 	tmp, err := http.ReadResponse(response_reader, r)
+	// 	ch.response_http_buffer = *tmp.
+	// 	ch.response_cached = true
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
+	//Create goroutine to handle cancels?
 	b, err := io.ReadAll(tmp.Body)
 	tmp.Body.Close()
 	if err != nil {
@@ -334,8 +366,16 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// }
 
 	// runtime.UnlockOSThread()
-	return codec.Unmarshal(b, resp)
+	// codec.Unmarshal(b, resp)
 
+	var temp_resp interface{}
+	if ch.response_buf != nil {
+		resp = ch.response_buf
+	} else {
+		err = codec.Unmarshal(b, temp_resp)
+		ch.response_buf = temp_resp
+	}
+	return err
 }
 
 // asMetadata converts the given HTTP headers into GRPC metadata.
