@@ -18,43 +18,7 @@ import (
 	"modernc.org/libc/pthread"
 )
 
-// type queue_pair struct {
-// 	id            uint64
-// 	request_addr  unsafe.Pointer
-// 	response_addr unsafe.Pointer
-// }
-
-// func open(source_addr string, destination_addr string) queue_pair {
-// 	csource_addr := C.CString(source_addr)
-// 	defer free(unsafe.Pointer(csource_addr))
-// 	cdestination_addrt := C.CString(destination_addr)
-// 	defer free(unsafe.Pointer(cdestination_addrt))
-
-// 	cqp := C.open(csource_addr, cdestination_addrt)
-// 	var goqp = queue_pair{
-// 		uint64(cqp.id),
-// 		cqp.shm_request_shmaddr,
-// 		cqp.shm_response_shmaddr,
-// 	}
-// 	return goqp
-// }
-
-// func send_rpc(conn queue_pair, buf []byte) int {
-
-// 	//get size from byte slice
-// 	cqp := _Ctype_struct_queue_pair{
-// 		C.ulong(conn.id),
-// 		conn.request_addr,
-// 		conn.respnse_addr,
-// 	}
-
-// 	cbuf := C.CBytes(buf)
-// 	defer free(cbuf)
-
-// 	return C.send_rpc(cqp, cbuf, C.ulong(len(buf)))
-// }
-
-const MESSAGE_SIZE = 2048
+const MESSAGE_SIZE = 256
 
 type QueueContext struct {
 	queues *QueuePair
@@ -102,7 +66,6 @@ func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (r
 		qt:      _ret.queue_type,
 		fn:      unsafe.Pointer(_ret.fn),
 		ptr_ctx: _ret,
-		// pinner: new(runtime.Pinner),
 	}
 	log.Info().Msgf("Client: open response ret : %v \n ", ret)
 	C.fflush(C.stdout)
@@ -111,48 +74,33 @@ func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (r
 
 // client_send_rpc
 func (conn *QueueContext) ClientSendRpc(buf []byte, size int) (ret int32) {
-	// queues := &C.queue_pair{
-	// 	client_id:        C.int(conn.queues.ClientId),
-	// 	request_shmaddr:  conn.queues.RequestShmaddr,
-	// 	response_shmaddr: conn.queues.ResponseShmaddr,
-	// 	offset:           C.int(conn.queues.Offset),
-	// }
-	// _conn := &C.queue_ctx{
-	// 	queues:     queues,
-	// 	queue_type: conn.qt,
-	// 	fn:         conn.fn,
-	// }
-	// cbuf := C.CBytes(buf)
+
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
-	// conn.pinner.Pin(_conn.queues)
 	_ret := C.client_send_rpc(conn.ptr_ctx, _buf, _size)
-	// conn.pinner.Unpin()
-	// buf = C.GoBytes(cbuf, C.int(_size))
-	// defer C.free(cbuf)
 	ret = int32(_ret)
 	return
 }
 
 // client_receive_buf
 func (conn *QueueContext) ClientReceiveBuf(buf []byte, size int) (ret int) {
-	// queues := &C.queue_pair{
-	// 	client_id:        C.int(conn.queues.ClientId),
-	// 	request_shmaddr:  conn.queues.RequestShmaddr,
-	// 	response_shmaddr: conn.queues.ResponseShmaddr,
-	// 	offset:           C.int(conn.queues.Offset),
-	// }
-	// _conn := &C.queue_ctx{
-	// 	queues:     queues,
-	// 	queue_type: conn.qt,
-	// 	fn:         conn.fn,
-	// }
+
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
-	// conn.pinner.Pin(_conn.queues)
+	//TODO: THIS IS A HUGE HACKY HACK
 	_ret := C.client_receive_buf(conn.ptr_ctx, _buf, _size)
-	// conn.pinner.Unpin()
+	//Partial Read
+	// if MESSAGE_SIZE > size {
+
+	// } else {
+
+	// }
+
+	// if _ret == 0 { //Succesful read! Return given size, lose any errors from C world
+	// 	ret = size
+	// } else {
 	ret = int(_ret)
+	// }
 	return
 }
 
@@ -187,10 +135,6 @@ func (handler *ServerContext) Accept() (ret *QueueContext) {
 		log.Info().Msgf("Server: open response ret old : %v \n ", ret)
 		return ret
 	}
-	// clientid := C.GoBytes(unsafe.Pointer(&_ret.client_id), C.sizeof_int)
-	// request_shmaddr := C.GoBytes(unsafe.Pointer(&_ret.request_shmaddr), C.sizeof_char)
-	// response_shmaddr := C.GoBytes(unsafe.Pointer(&_ret.response_shmaddr), C.sizeof_char)
-
 	ret = &QueueContext{
 		queues: &QueuePair{
 			ClientId:        int(_ret.queues.client_id),
@@ -224,49 +168,23 @@ func (handler *ServerContext) Shutdown() {
 // server_receive_buf
 func (client *QueueContext) ServerReceiveBuf(buf []byte, size int) (ret int) {
 
-	// queues := &C.queue_pair{
-	// 	client_id:        C.int(client.queues.ClientId),
-	// 	request_shmaddr:  client.queues.RequestShmaddr,
-	// 	response_shmaddr: client.queues.ResponseShmaddr,
-	// 	offset:           C.int(client.queues.Offset),
-	// }
-	// _client := &C.queue_ctx{
-	// 	queues:     queues,
-	// 	queue_type: client.qt,
-	// 	fn:         client.fn,
-	// }
-	// cbuf := C.CBytes(buf)
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
-	// client.pinner.Pin(_buf)
-	// client.pinner.Pin(_client.queues)
+	//TODO: THIS IS A HUGE HACKY HACK
 	_ret := C.server_receive_buf(client.ptr_ctx, _buf, _size)
-	// client.pinner.Unpin()
-	// buf = C.GoBytes(cbuf, C.int(_size))
-	// defer C.free(cbuf)
+	// if _ret == 0 { //Succesful read! Return given size, lose any errors from C world
+	// 	ret = size
+	// } else {
 	ret = int(_ret)
+	// }
 	return
 }
 
 // server_send_rpc
 func (client *QueueContext) ServerSendRpc(buf []byte, size int) (ret int32) {
-	// queues := &C.queue_pair{
-	// 	client_id:        C.int(client.queues.ClientId),
-	// 	request_shmaddr:  client.queues.RequestShmaddr,
-	// 	response_shmaddr: client.queues.ResponseShmaddr,
-	// 	offset:           C.int(client.queues.Offset),
-	// }
-	// _client := &C.queue_ctx{
-	// 	queues:     queues,
-	// 	queue_type: client.qt,
-	// 	fn:         client.fn,
-	// }
 	_buf := unsafe.Pointer(&buf[0])
 	_size := C.size_t(size)
-	// client.pinner.Pin(_buf)
-	// client.pinner.Pin(_client.queues)
 	_ret := C.server_send_rpc(client.ptr_ctx, _buf, _size)
-	// client.pinner.Unpin()
 	ret = int32(_ret)
 	return
 }

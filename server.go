@@ -11,12 +11,14 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/textproto"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/EIRNf/notnets_grpc/internal"
+	"github.com/hashicorp/yamux"
 
 	"github.com/fullstorydev/grpchan"
 	"github.com/rs/zerolog/log"
@@ -100,12 +102,17 @@ func UnaryInterceptor(interceptor grpc.UnaryServerInterceptor) ServerOption {
 // HandlerOptions also implement ServerOption.
 type HandlerOption func(*handlerOpts)
 
+func UNUSED_(x ...interface{}) {}
+
 type handlerOpts struct {
-	errFunc func(context.Context, *status.Status, http.ResponseWriter)
+	UNUSED_errFunc func(context.Context, *status.Status, http.ResponseWriter)
 }
+
+func UNUSED_errFunc(x ...interface{}) {}
 
 type NotnetsServer struct {
 	// grpc.Server
+
 	handlers         grpchan.HandlerMap
 	basePath         string
 	opts             handlerOpts
@@ -127,7 +134,8 @@ type NotnetsServer struct {
 	// Map of queue pairs for boolean of active or inactive connections
 	// conns map[int]*QueuePair
 
-	conns sync.Map
+	conns        sync.Map
+	live_streams yamux.Stream
 
 	// fixed_request_buffer    []byte
 	// variable_request_buffer *bytes.Buffer
@@ -265,9 +273,7 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 	log.Info().Msgf("New client connection: %s", conn)
 
 	//Check if server has been shutdown
-
 	//Set service deadlines?
-
 	//Launch dedicated thread to handle
 	go func() {
 		log.Trace().Msgf("New go routine for connection: %s", conn)
@@ -285,15 +291,36 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
 	log.Trace().Msgf("Serving: %s", conn)
 
+	config := &yamux.Config{
+		AcceptBacklog:          256,
+		EnableKeepAlive:        true,
+		KeepAliveInterval:      30 * time.Second,
+		ConnectionWriteTimeout: 500 * time.Second,
+		MaxStreamWindowSize:    256 * 1024,
+		StreamCloseTimeout:     5 * time.Minute,
+		StreamOpenTimeout:      75 * time.Second,
+		LogOutput:              os.Stderr,
+	}
+
+	session, err := yamux.Server(conn, config)
+	if err != nil {
+		panic(err)
+	}
+
+	// Accept a stream
+	stream, err := session.AcceptStream()
+	if err != nil {
+		panic(err)
+	}
+
 	// defer close connection
 	// var wg sync.WaitGroup
-
 	fixed_request_buffer := make([]byte, MESSAGE_SIZE) //MESSAGE_SIZE
 	variable_request_buffer := bytes.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
-		size, err := conn.Read(fixed_request_buffer)
+		size, err := stream.Read(fixed_request_buffer)
 		if err != nil {
 			log.Error().Msgf("Read error: %s", err)
 		}
@@ -303,13 +330,13 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 			log.Trace().Msgf("Received request: %s", variable_request_buffer)
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
-			s.handleMethod(conn, variable_request_buffer)
+			s.handleMethod(stream, variable_request_buffer)
 		}
 	}
 	// Call handle method as we read of queue appropriately.
 }
 
-func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
+func (s *NotnetsServer) handleMethod(stream net.Conn, b *bytes.Buffer) {
 	// runtime.LockOSThread()
 
 	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -514,7 +541,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	finalbuf, _ := httputil.DumpResponse(t, true)
 	// var writeBuffer = &bytes.Buffer{}
 	// t.Write(writeBuffer)
-	conn.Write(finalbuf)
+	stream.Write(finalbuf)
 	// runtime.UnlockOSThread()
 }
 

@@ -22,6 +22,8 @@ import (
 	"google.golang.org/grpc/encoding"
 	encoding_proto "google.golang.org/grpc/encoding/proto"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/hashicorp/yamux"
 )
 
 type NotnetsAddr struct {
@@ -57,16 +59,20 @@ type NotnetsConn struct {
 // TODO: Error handling, timeouts
 func (c *NotnetsConn) Read(b []byte) (n int, err error) {
 	c.read_mu.Lock()
-	var leftover_bytes int
-	if c.ClientSide {
-		leftover_bytes = c.queues.ClientReceiveBuf(b, len(b))
-		// if leftover_bytes == -1 {
+	var bytes_read int
+	if c.ClientSide { //TODO: bUG
+		bytes_read = c.queues.ClientReceiveBuf(b, len(b))
+		// if bytes_read == MESSAGE_SIZE {
+		// 	err = io.EOF
 		// }
 	} else { //Server read
-		leftover_bytes = c.queues.ServerReceiveBuf(b, len(b))
+		bytes_read = c.queues.ServerReceiveBuf(b, len(b))
+		// if bytes_read == MESSAGE_SIZE {
+		// 	err = io.EOF
+		// }
 	}
 	c.read_mu.Unlock()
-	return leftover_bytes, nil
+	return bytes_read, err
 }
 
 // TODO: Error handling, timeouts
@@ -160,39 +166,21 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 				break
 			}
 		}
-
 	}
+	ch.session_conn, _ = yamux.Client(ch.conn, nil)
 
 	log.Info().Msgf("Client: New Channel: %v \n ", ch.conn.queues.queues.ClientId)
 	log.Info().Msgf("Client: New Channel RequestShmid: %v \n ", ch.conn.queues.queues.RequestShmaddr)
 	log.Info().Msgf("Client: New Channel RespomseShmid: %v \n ", ch.conn.queues.queues.ResponseShmaddr)
 
 	ch.conn.isConnected = true
-
-	// ch.request_payload_buffer = make([]byte, MESSAGE_SIZE)
-	// ch.request_buffer = bytes.NewReader(ch.request_payload_buffer)
-
-	// ch.variable_read_buffer = bytes.NewBuffer(nil)
-	// ch.fixed_read_buffer = make([]byte, MESSAGE_SIZE)
-
-	// ch.request_reader = bufio.NewReader(ch.variable_read_buffer)
-	// ch.request_reader = bytes.NewBuffer(nil)
-
-	// ch.response_reader = bufio.NewReader(ch.variable_read_buffer)
-
-	// writer = io.Writer
-
-	// encoder = json.NewEncoder(writer)
-	// decoder = json.NewDecoder(reader)
-
-	// ch.dec = sonic.ConfigDefault.NewDecoder(ch.variable_read_buffer)
-
 	return ch, nil
 }
 
 type NotnetsChannel struct {
 	conn *NotnetsConn
 
+	session_conn *yamux.Session
 	// request_payload_buffer []byte
 
 	// fixed_read_buffer    []byte
@@ -219,11 +207,6 @@ var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 const UnaryRpcContentType_V1 = "application/x-protobuf"
 
 func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, resp interface{}, opts ...grpc.CallOption) error {
-	//Tranlsate grpcCallOptions to Notnets call options
-
-	// runtime.LockOSThread()
-	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
-
 	log.Trace().Msgf("Client:  Request: %s \n ", req)
 
 	//Get Call Options
@@ -260,8 +243,17 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	log.Trace().Msgf("Client: Serialized Request: %s \n ", writeBuffer)
 
 	//START MESSAGING
+
+	// Open a new stream to handle this request:
+	stream, err := ch.session_conn.Open()
+	if err != nil {
+		panic(err)
+	}
+
+	stream.Write(writeBuffer.Bytes())
+
 	// pass into shared mem queue
-	ch.conn.Write(writeBuffer.Bytes())
+	// ch.conn.Write(writeBuffer.Bytes())
 
 	// var fixed_read_buffer []byte
 	// var variable_read_buffer bytes.Buffer
@@ -274,7 +266,8 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	var size int
 	//Most time is spend reading, wiating on Server to finish
 	for {
-		size, err = ch.conn.Read(fixed_read_buffer)
+
+		size, err = stream.Read(fixed_read_buffer)
 		if err != nil {
 			return err
 		}
