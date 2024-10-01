@@ -32,7 +32,7 @@ func TestGrpcOverSharedMemory(t *testing.T) {
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
-	time.Sleep(10 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	// channel_tests_service.RunChannelTestCases(t, cc, true)
 	channel_tests_service.RunChannelTestCases(t, cc, true)

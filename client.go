@@ -54,6 +54,7 @@ type NotnetsConn struct {
 	write_deadline time.Time
 }
 
+
 // TODO: Error handling, timeouts
 func (c *NotnetsConn) Read(b []byte) (n int, err error) {
 	c.read_mu.Lock()
@@ -282,7 +283,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		//Add control flow to support cancel?
 
 		variable_read_buffer.Write(fixed_read_buffer)
-		if size == 0 { //Have full payload
+		if size == MESSAGE_SIZE { //Have full payload
 			break
 		}
 	}

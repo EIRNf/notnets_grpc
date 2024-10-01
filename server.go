@@ -299,7 +299,7 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 		}
 
 		variable_request_buffer.Write(fixed_request_buffer)
-		if size == 0 { //Have full payload
+		if size == MESSAGE_SIZE{ //Have full payload
 			log.Trace().Msgf("Received request: %s", variable_request_buffer)
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
