@@ -17,9 +17,6 @@ func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
-	// svr := &grpchantesting.TestServer{}
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-
 	svc := &test_hello_service.TestServer{}
 	svr := NewNotnetsServer()
 

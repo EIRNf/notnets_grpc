@@ -6,14 +6,12 @@ import (
 	"time"
 
 	"github.com/EIRNf/notnets_grpc/channel_tests_service"
+	"github.com/rs/zerolog"
 )
 
 func TestGrpcOverSharedMemory(t *testing.T) {
-	// conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	// if err != nil {
-	// 	log.Fatalf("did not connect: %v", err)
-	// }
-	// defer conn.Close()
+	zerolog.SetGlobalLevel(zerolog.TraceLevel)
+
 
 	svc := &channel_tests_service.TestServer{}
 	// svc := &channel_tests_service.TestServer{}

@@ -281,7 +281,6 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 
 		//Add control flow to support cancel?
-
 		variable_read_buffer.Write(fixed_read_buffer)
 		if size == MESSAGE_SIZE { //Have full payload
 			break
