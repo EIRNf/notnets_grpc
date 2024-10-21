@@ -1,7 +1,7 @@
 package notnets_grpc
 
-// #cgo CFLAGS: -Inotnets_shm/libnotnets/include
-// #cgo LDFLAGS: -Lnotnets_shm/libnotnets/bin  -lnotnets
+// #cgo CFLAGS: -I${SRCDIR}/notnets_shm/libnotnets/include
+// #cgo LDFLAGS: -L${SRCDIR}/notnets_shm/libnotnets/bin  -lnotnets
 // #include <stdio.h>
 // #include <unistd.h>
 // #include <sched.h>
@@ -11,7 +11,6 @@ package notnets_grpc
 // #include "coord.h"
 import "C"
 import (
-	"runtime"
 	"unsafe"
 
 	"github.com/rs/zerolog/log"
@@ -24,7 +23,7 @@ type QueueContext struct {
 	queues *QueuePair
 	qt     C.QUEUE_TYPE
 	fn     unsafe.Pointer
-	pinner runtime.Pinner
+	// pinner runtime.Pinner
 
 	ptr_ctx *C.queue_ctx
 }
@@ -128,12 +127,12 @@ func RegisterServer(sourceAddr string) (ret *ServerContext) {
 func (handler *ServerContext) Accept() (ret *QueueContext) {
 	_handler := (*C.server_context)(unsafe.Pointer(handler))
 	_ret := C.accept(_handler)
-	log.Info().Msgf("Server: open response : %v \n ", _ret)
+	log.Info().Msgf("Server: open response : %v", _ret)
 	if _ret == nil {
 		//null case, return simple type conversion
-		ret = (*QueueContext)(unsafe.Pointer(_ret))
-		log.Info().Msgf("Server: open response ret old : %v \n ", ret)
-		return ret
+		// ret = (*QueueContext)(unsafe.Pointer(_ret))
+		log.Info().Msgf("Server: open response ret old : %v", ret)
+		return nil
 	}
 	ret = &QueueContext{
 		queues: &QueuePair{
@@ -143,14 +142,13 @@ func (handler *ServerContext) Accept() (ret *QueueContext) {
 			Offset:          int(_ret.queues.offset),
 		},
 		qt:      _ret.queue_type,
-		fn:      _ret.fn,
+		fn:      unsafe.Pointer(_ret.fn),
 		ptr_ctx: _ret,
 	}
-	log.Info().Msgf("Server: open response ret new : %v \n ", ret)
+	log.Info().Msgf("Server: open response ret new : %v", ret)
 	C.fflush(C.stdout)
 	// C.free((unsafe.Pointer(_ret)))
-
-	return ret
+	return 
 }
 
 // manage_pool

@@ -3,7 +3,6 @@ package notnets_grpc
 import (
 	"log"
 	"testing"
-	"time"
 
 	"github.com/EIRNf/notnets_grpc/channel_tests_service"
 	"github.com/rs/zerolog"
@@ -22,18 +21,16 @@ func TestGrpcOverSharedMemory(t *testing.T) {
 	channel_tests_service.RegisterTestServiceServer(svr, svc)
 
 	//Create Listener
-	lis := Listen("http://127.0.0.1:8080/hello")
+	lis := Listen("functional")
 
 	go svr.Serve(lis)
 
-	cc, err := Dial("FunctionalTest", "http://127.0.0.1:8080/hello", MESSAGE_SIZE)
+	cc, err := Dial("FunctionalTest", "functional", MESSAGE_SIZE)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
-	time.Sleep(2 * time.Second)
 
 	// channel_tests_service.RunChannelTestCases(t, cc, true)
 	channel_tests_service.RunChannelTestCases(t, cc, true)
-
 	svr.Stop()
 }

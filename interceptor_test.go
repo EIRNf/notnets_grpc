@@ -4,7 +4,6 @@ import (
 	"log"
 	"runtime/debug"
 	"testing"
-	"time"
 
 	"github.com/EIRNf/notnets_grpc/test_hello_service"
 	"github.com/fullstorydev/grpchan"
@@ -27,7 +26,7 @@ func BenchmarkGrpcOverSharedMemoryInterceptor(b *testing.B) {
 			Param: 1,
 		},
 		Reporter: &config.ReporterConfig{ // Configure how the client reports trace information. All fields are optional.
-			LogSpans:           true,
+			LogSpans:           false,
 			LocalAgentHostPort: "localhost:4040",
 		},
 		// Token configuration
@@ -55,16 +54,16 @@ func BenchmarkGrpcOverSharedMemoryInterceptor(b *testing.B) {
 	test_hello_service.RegisterTestServiceServer(svr, svc)
 
 	//Create Listener
-	lis := Listen("http://127.0.0.1:8080/hello")
+	lis := Listen("http://127.0.0.1:8080/interceptor")
 
 	go svr.Serve(lis)
 
-	cc, err := Dial("localhost", "http://127.0.0.1:8080/hello", MESSAGE_SIZE)
+	cc, err := Dial("BenchmarkGrpcOverSharedMemoryInterceptor", "http://127.0.0.1:8080/interceptor", MESSAGE_SIZE)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
 	intercepted := grpchan.InterceptClientConn(cc, otgrpc.OpenTracingClientInterceptor(tracer), nil)
-	time.Sleep(10 * time.Second)
+	// time.Sleep(10 * time.Second)
 
 	// grpchantesting.RunChannelTestCases(t, &cc, true)
 	test_hello_service.RunChannelBenchmarkCases(b, intercepted, false)
