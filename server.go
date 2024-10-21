@@ -128,6 +128,7 @@ type NotnetsServer struct {
 	// conns map[int]*QueuePair
 
 	conns sync.Map
+	stop bool
 
 	// fixed_request_buffer    []byte
 	// variable_request_buffer *bytes.Buffer
@@ -146,6 +147,7 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 	var s NotnetsServer
 	// s.Server = grpc.NewServer()
 	s.handlers = grpchan.HandlerMap{}
+	s.stop = false
 
 	for _, o := range opts {
 		o.apply(&s)
@@ -188,9 +190,11 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 	log.Info().Msgf("Serving at address: %s", s.lis.Addr())
 
 	//Begin Accept Loop
-
 	var tempDelay time.Duration
 	for {
+		if s.stop {
+			return nil
+		}
 		rawConn, err := lis.Accept()
 		if err != nil {
 			log.Error().Msgf("Accept error: %s", err)
@@ -253,7 +257,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 
 func (s *NotnetsServer) Stop() {
 	//Stop grpc??? How though
-	// s.Stop()
+	s.stop = true
 	s.lis.Close()
 	//Stop any notnets specifics
 }
