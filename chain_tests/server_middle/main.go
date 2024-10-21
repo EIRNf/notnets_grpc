@@ -4,7 +4,6 @@ import (
 	"log"
 
 	"github.com/EIRNf/notnets_grpc"
-	"github.com/EIRNf/notnets_grpc/test_hello_service"
 
 	chaintests "github.com/EIRNf/notnets_grpc/chain_tests"
 )
@@ -17,7 +16,7 @@ func main() {
 	}
 
 	svc := &chaintests.TestServer{
-		HelloClient: test_hello_service.NewTestServiceClient(cc1),
+		HelloClient: chaintests.NewTestServiceClient(cc1),
 	}
 	// svc := &channel_tests_service.TestServer{}
 	svr := notnets_grpc.NewNotnetsServer()

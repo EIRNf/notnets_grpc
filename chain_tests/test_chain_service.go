@@ -4,20 +4,18 @@ package chaintests
 
 import (
 	"context"
-
-	"github.com/EIRNf/notnets_grpc/test_hello_service"
 )
 
 // TestServer has default responses to the various kinds of methods.
 type TestServer struct {
-	HelloClient test_hello_service.TestServiceClient
+	HelloClient TestServiceClient
 
 	UnimplementedTestServiceServer
 }
 
 func (s *TestServer) SayHello(ctx context.Context, in *HelloRequest) (*HelloReply, error) {
 
-	req := &test_hello_service.GoodbyeRequest{
+	req := &GoodbyeRequest{
 		Name: in.Name,
 	}
 	resp, err := s.HelloClient.SayGoodbye(ctx, req)
