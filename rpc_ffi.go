@@ -17,7 +17,7 @@ import (
 	"modernc.org/libc/pthread"
 )
 
-const MESSAGE_SIZE = 512
+const MESSAGE_SIZE = 1024
 
 type QueueContext struct {
 	queues *QueuePair
@@ -148,7 +148,7 @@ func (handler *ServerContext) Accept() (ret *QueueContext) {
 	log.Info().Msgf("Server: open response ret new : %v", ret)
 	C.fflush(C.stdout)
 	// C.free((unsafe.Pointer(_ret)))
-	return 
+	return
 }
 
 // manage_pool
