@@ -54,7 +54,7 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 			}
 			timer := time.NewTimer(tempDelay)
 			<-timer.C
-			ch.conn.queues = ClientOpen(local_addr, remote_addr, MESSAGE_SIZE)
+			ch.conn.queues = ClientOpen(local_addr, remote_addr, message_size)
 			if ch.conn.queues != nil {
 				break
 			}
