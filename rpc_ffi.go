@@ -17,7 +17,7 @@ import (
 	"modernc.org/libc/pthread"
 )
 
-const MESSAGE_SIZE = 1024
+const MESSAGE_SIZE = 2048
 
 type QueueContext struct {
 	queues *QueuePair
