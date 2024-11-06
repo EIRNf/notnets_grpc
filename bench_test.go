@@ -2,7 +2,6 @@ package notnets_grpc
 
 import (
 	"log"
-	"runtime/debug"
 	"testing"
 
 	test_hello_service "github.com/EIRNf/notnets_grpc/test_hello_service"
@@ -11,13 +10,13 @@ import (
 
 func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 
-	debug.SetGCPercent(-1)
+	// debug.SetGCPercent(-1)
 	// runtime.MemProfileRate = 1
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	svc := &test_hello_service.TestServer{}
-	svr := NewNotnetsServer()
+	svr := NewNotnetsServer(SetMessageSize(MESSAGE_SIZE))
 
 	//Register Server and instantiate with necessary information
 	test_hello_service.RegisterTestServiceServer(svr, svc)

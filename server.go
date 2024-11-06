@@ -94,6 +94,12 @@ func UnaryInterceptor(interceptor grpc.UnaryServerInterceptor) ServerOption {
 	})
 }
 
+func SetMessageSize(size int) ServerOption {
+	return serverOptFunc(func(s *NotnetsServer) {
+		s.message_size = size
+	})
+}
+
 // HandlerOption is an option to customize some aspect of the HTTP handler
 // behavior, such as rendering gRPC errors to HTTP responses.
 //
@@ -130,6 +136,8 @@ type NotnetsServer struct {
 	conns sync.Map
 	stop bool
 
+
+	message_size int
 	// fixed_request_buffer    []byte
 	// variable_request_buffer *bytes.Buffer
 	// request_reader          *bufio.Reader
@@ -145,7 +153,6 @@ type NotnetsServer struct {
 
 func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 	var s NotnetsServer
-	// s.Server = grpc.NewServer()
 	s.handlers = grpchan.HandlerMap{}
 	s.stop = false
 
@@ -153,6 +160,10 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 		o.apply(&s)
 	}
 	s.conns = sync.Map{}
+
+	if s.message_size == 0 {
+		s.message_size = MESSAGE_SIZE
+	}
 
 	// s.fixed_request_buffer = make([]byte, MESSAGE_SIZE)
 	// s.variable_request_buffer = bytes.NewBuffer(nil)
@@ -292,18 +303,18 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 	// defer close connection
 	// var wg sync.WaitGroup
 
-	fixed_request_buffer := make([]byte, MESSAGE_SIZE) //MESSAGE_SIZE
+	fixed_request_buffer := make([]byte, s.message_size) //MESSAGE_SIZE
 	variable_request_buffer := bytes.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
-		size, err := conn.Read(fixed_request_buffer)
+		_, err := conn.Read(fixed_request_buffer)
 		if err != nil {
 			log.Error().Msgf("Read error: %s", err)
 		}
 
-		variable_request_buffer.Write(fixed_request_buffer)
-		if size == MESSAGE_SIZE{ //Have full payload
+		vsize, err := variable_request_buffer.Write(fixed_request_buffer)
+		if vsize == s.message_size{ //Have full payload
 			log.Trace().Msgf("Received request: %s", variable_request_buffer)
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
@@ -327,6 +338,7 @@ func (s *NotnetsServer) handleMethod(conn net.Conn, b *bytes.Buffer) {
 	// s.request_reader.Reset(b)
 	request_reader := bufio.NewReader(b)
 	tmp, err := http.ReadRequest(request_reader)
+	b.Reset()
 	if err != nil {
 		return
 	}

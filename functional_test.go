@@ -14,7 +14,7 @@ func TestGrpcOverSharedMemory(t *testing.T) {
 
 	svc := &channel_tests_service.TestServer{}
 	// svc := &channel_tests_service.TestServer{}
-	svr := NewNotnetsServer()
+	svr := NewNotnetsServer(SetMessageSize(MESSAGE_SIZE))
 
 	//Register Server and instantiate with necessary information
 	// test_hello_service.RegisterTestServiceServer(svr, svc)

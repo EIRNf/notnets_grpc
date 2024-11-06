@@ -18,7 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
-	encoding_proto "google.golang.org/grpc/encoding/proto"
+	grpcproto "google.golang.org/grpc/encoding/proto"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -32,6 +32,7 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 		},
 	}
 	ch.conn.isConnected = false
+	ch.message_size = message_size
 
 	// ch.conn.SetDeadline(time.Second * 30)
 
@@ -91,6 +92,7 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 
 type NotnetsChannel struct {
 	conn *NotnetsConn
+	message_size int32
 
 	// request_payload_buffer []byte
 
@@ -113,6 +115,7 @@ type NotnetsChannel struct {
 	//ConnectTimeWait
 }
 
+type Channel = grpc.ClientConnInterface
 var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 
 const UnaryRpcContentType_V1 = "application/x-protobuf"
@@ -140,7 +143,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	h := headersFromContext(ctx)
 	h.Set("Content-Type", UnaryRpcContentType_V1)
 
-	codec := encoding.GetCodec(encoding_proto.Name)
+	codec := encoding.GetCodec(grpcproto.Name)
 	request_payload_buffer, err := codec.Marshal(req)
 	if err != nil {
 		return err
@@ -165,22 +168,25 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// var fixed_read_buffer []byte
 	// var variable_read_buffer bytes.Buffer
 
-	fixed_read_buffer := make([]byte, MESSAGE_SIZE)
+	fixed_read_buffer := make([]byte, ch.message_size)
 	variable_read_buffer := bytes.NewBuffer(nil)
 
 	//Receive Request
 	//iterate and append to dynamically allocated data until all data is read
-	var size int
+	// var size int
 	//Most time is spend reading, wiating on Server to finish
 	for {
-		size, err = ch.conn.Read(fixed_read_buffer)
+		_, err = ch.conn.Read(fixed_read_buffer)
 		if err != nil {
 			return err
 		}
 
 		//Add control flow to support cancel?
-		variable_read_buffer.Write(fixed_read_buffer)
-		if size == MESSAGE_SIZE { //Have full payload
+		vsize, err := variable_read_buffer.Write(fixed_read_buffer)
+		if err != nil {
+			return err
+		}
+		if vsize == int(ch.message_size) { //Have full payload
 			break
 		}
 	}
@@ -189,6 +195,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 
 	response_reader := bufio.NewReader(variable_read_buffer)
 	tmp, err := http.ReadResponse(response_reader, r)
+	variable_read_buffer.Reset()
 	if err != nil {
 		return err
 	}
