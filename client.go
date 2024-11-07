@@ -168,34 +168,36 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// var fixed_read_buffer []byte
 	// var variable_read_buffer bytes.Buffer
 
-	fixed_read_buffer := make([]byte, ch.message_size)
-	variable_read_buffer := bytes.NewBuffer(nil)
+	fixed_response_buffer := make([]byte, ch.message_size)
+	variable_respnse_buffer := bytes.NewBuffer(nil)
 
 	//Receive Request
 	//iterate and append to dynamically allocated data until all data is read
-	// var size int
-	//Most time is spend reading, wiating on Server to finish
 	for {
-		_, err = ch.conn.Read(fixed_read_buffer)
+		size, err := ch.conn.Read(fixed_response_buffer)
 		if err != nil {
+			log.Error().Msgf("Client: Read Error: %s", err)
 			return err
 		}
 
 		//Add control flow to support cancel?
-		vsize, err := variable_read_buffer.Write(fixed_read_buffer)
+		vsize, err := variable_respnse_buffer.Write(fixed_response_buffer[:size])
 		if err != nil {
+			log.Error().Msgf("Client: Variable Buffer Write Error: %s", err)
 			return err
 		}
-		if vsize == int(ch.message_size) { //Have full payload
+		if size < int(ch.message_size) { //Have full payload, as we have a read that is smaller than buffer
+			log.Trace().Msgf("Client: Received Response Size: %d", vsize)
+			log.Trace().Msgf("Client: Received Response: %s", variable_respnse_buffer)
 			break
+		} else { // More data to read, as buffer is full
+			continue
 		}
 	}
 
-	log.Trace().Msgf("Client: Serialized Response: %s \n ", variable_read_buffer)
-
-	response_reader := bufio.NewReader(variable_read_buffer)
+	response_reader := bufio.NewReader(variable_respnse_buffer)
 	tmp, err := http.ReadResponse(response_reader, r)
-	variable_read_buffer.Reset()
+	variable_respnse_buffer.Reset()
 	if err != nil {
 		return err
 	}

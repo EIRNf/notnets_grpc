@@ -308,17 +308,22 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
-		_, err := conn.Read(fixed_request_buffer)
+		size, err := conn.Read(fixed_request_buffer)
 		if err != nil {
-			log.Error().Msgf("Read error: %s", err)
+			log.Error().Msgf("Server: Read Error: %s", err)
 		}
 
-		vsize, err := variable_request_buffer.Write(fixed_request_buffer)
-		if vsize == s.message_size{ //Have full payload
-			log.Trace().Msgf("Received request: %s", variable_request_buffer)
+		vsize, err := variable_request_buffer.Write(fixed_request_buffer[:size])
+		if err != nil {
+			log.Error().Msgf("Server: Variable Buffer Write Error: %s", err)
+		}
+		if size < s.message_size{ //Have full payload, as we have a read that is smaller than buffer
+			log.Trace().Msgf("Server: Received Request Size: %d", vsize)
+			log.Trace().Msgf("Server: Received Request: %s", variable_request_buffer)
 
-			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
 			s.handleMethod(conn, variable_request_buffer)
+		} else{ // More data to read, as buffer is full
+			continue
 		}
 	}
 	// Call handle method as we read of queue appropriately.
