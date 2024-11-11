@@ -7,127 +7,22 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/EIRNf/notnets_grpc/internal"
 
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
-	encoding_proto "google.golang.org/grpc/encoding/proto"
+	grpcproto "google.golang.org/grpc/encoding/proto"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/hashicorp/yamux"
 )
-
-type NotnetsAddr struct {
-	basic string
-	// IP   net.IP
-	// Port int
-}
-
-func (addr *NotnetsAddr) Network() string {
-	return "notnets"
-}
-
-func (addr *NotnetsAddr) String() string {
-	return "notnets:" + addr.basic
-}
-
-// Does not support multiple go routines
-// It does by having locks but it's not "meant" to
-type NotnetsConn struct {
-	ClientSide  bool
-	isConnected bool
-
-	read_mu        sync.Mutex
-	write_mu       sync.Mutex
-	queues         *QueueContext
-	local_addr     net.Addr
-	remote_addr    net.Addr
-	deadline       time.Time
-	read_deadline  time.Time
-	write_deadline time.Time
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) Read(b []byte) (n int, err error) {
-	c.read_mu.Lock()
-	var bytes_read int
-	if c.ClientSide { //TODO: bUG
-		bytes_read = c.queues.ClientReceiveBuf(b, len(b))
-		// if bytes_read == MESSAGE_SIZE {
-		// 	err = io.EOF
-		// }
-	} else { //Server read
-		bytes_read = c.queues.ServerReceiveBuf(b, len(b))
-		// if bytes_read == MESSAGE_SIZE {
-		// 	err = io.EOF
-		// }
-	}
-	c.read_mu.Unlock()
-	return bytes_read, err
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) Write(b []byte) (n int, err error) {
-	c.write_mu.Lock()
-	var size int32
-	if c.ClientSide {
-		size = c.queues.ClientSendRpc(b, len(b))
-	} else { //Server read
-		size = c.queues.ServerSendRpc(b, len(b))
-	}
-	c.write_mu.Unlock()
-	return int(size), nil
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) Close() error {
-	var err error
-	ret := ClientClose(c.local_addr.String(), c.remote_addr.String())
-	// Error closing
-	if ret == -1 {
-		// log.Fatalf()
-		return err
-	}
-	return nil
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) LocalAddr() net.Addr {
-	return c.local_addr
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) RemoteAddr() net.Addr {
-	return c.remote_addr
-
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) SetDeadline(t time.Time) error {
-	c.deadline = t
-	return nil
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) SetReadDeadline(t time.Time) error {
-	c.read_deadline = t
-	return nil
-}
-
-// TODO: Error handling, timeouts
-func (c *NotnetsConn) SetWriteDeadline(t time.Time) error {
-	c.write_deadline = t
-	return nil
-}
 
 func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, error) {
 	//if using dialer always client
@@ -139,11 +34,12 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 		},
 	}
 	ch.conn.isConnected = false
+	ch.message_size = message_size
 
 	// ch.conn.SetDeadline(time.Second * 30)
 
 	var tempDelay time.Duration
-	log.Info().Msgf("Client: Opening New Channel %s,%s\n", local_addr, remote_addr)
+	log.Info().Msgf("Client: Opening New Channel %s,%s", local_addr, remote_addr)
 	ch.conn.queues = ClientOpen(local_addr, remote_addr, message_size)
 
 	if ch.conn.queues == nil { //if null means server doesn't exist yet
@@ -161,7 +57,7 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 			}
 			timer := time.NewTimer(tempDelay)
 			<-timer.C
-			ch.conn.queues = ClientOpen(local_addr, remote_addr, MESSAGE_SIZE)
+			ch.conn.queues = ClientOpen(local_addr, remote_addr, message_size)
 			if ch.conn.queues != nil {
 				break
 			}
@@ -179,6 +75,7 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 
 type NotnetsChannel struct {
 	conn *NotnetsConn
+	message_size int32
 
 	session_conn *yamux.Session
 	// request_payload_buffer []byte
@@ -202,6 +99,7 @@ type NotnetsChannel struct {
 	//ConnectTimeWait
 }
 
+type Channel = grpc.ClientConnInterface
 var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
 
 const UnaryRpcContentType_V1 = "application/x-protobuf"
@@ -224,7 +122,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	h := headersFromContext(ctx)
 	h.Set("Content-Type", UnaryRpcContentType_V1)
 
-	codec := encoding.GetCodec(encoding_proto.Name)
+	codec := encoding.GetCodec(grpcproto.Name)
 	request_payload_buffer, err := codec.Marshal(req)
 	if err != nil {
 		return err
@@ -258,32 +156,37 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// var fixed_read_buffer []byte
 	// var variable_read_buffer bytes.Buffer
 
-	fixed_read_buffer := make([]byte, MESSAGE_SIZE)
-	variable_read_buffer := bytes.NewBuffer(nil)
+	fixed_response_buffer := make([]byte, ch.message_size)
+	variable_respnse_buffer := bytes.NewBuffer(nil)
 
 	//Receive Request
 	//iterate and append to dynamically allocated data until all data is read
-	var size int
-	//Most time is spend reading, wiating on Server to finish
 	for {
 
 		size, err = stream.Read(fixed_read_buffer)
 		if err != nil {
+			log.Error().Msgf("Client: Read Error: %s", err)
 			return err
 		}
 
 		//Add control flow to support cancel?
-
-		variable_read_buffer.Write(fixed_read_buffer)
-		if size == 0 { //Have full payload
+		vsize, err := variable_respnse_buffer.Write(fixed_response_buffer[:size])
+		if err != nil {
+			log.Error().Msgf("Client: Variable Buffer Write Error: %s", err)
+			return err
+		}
+		if size < int(ch.message_size) { //Have full payload, as we have a read that is smaller than buffer
+			log.Trace().Msgf("Client: Received Response Size: %d", vsize)
+			log.Trace().Msgf("Client: Received Response: %s", variable_respnse_buffer)
 			break
+		} else { // More data to read, as buffer is full
+			continue
 		}
 	}
 
-	log.Trace().Msgf("Client: Serialized Response: %s \n ", variable_read_buffer)
-
-	response_reader := bufio.NewReader(variable_read_buffer)
+	response_reader := bufio.NewReader(variable_respnse_buffer)
 	tmp, err := http.ReadResponse(response_reader, r)
+	variable_respnse_buffer.Reset()
 	if err != nil {
 		return err
 	}

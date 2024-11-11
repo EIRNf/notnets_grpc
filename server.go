@@ -96,6 +96,12 @@ func UnaryInterceptor(interceptor grpc.UnaryServerInterceptor) ServerOption {
 	})
 }
 
+func SetMessageSize(size int) ServerOption {
+	return serverOptFunc(func(s *NotnetsServer) {
+		s.message_size = size
+	})
+}
+
 // HandlerOption is an option to customize some aspect of the HTTP handler
 // behavior, such as rendering gRPC errors to HTTP responses.
 //
@@ -137,6 +143,8 @@ type NotnetsServer struct {
 	conns        sync.Map
 	live_streams yamux.Stream
 
+
+	message_size int
 	// fixed_request_buffer    []byte
 	// variable_request_buffer *bytes.Buffer
 	// request_reader          *bufio.Reader
@@ -152,13 +160,17 @@ type NotnetsServer struct {
 
 func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 	var s NotnetsServer
-	// s.Server = grpc.NewServer()
 	s.handlers = grpchan.HandlerMap{}
+	s.stop = false
 
 	for _, o := range opts {
 		o.apply(&s)
 	}
 	s.conns = sync.Map{}
+
+	if s.message_size == 0 {
+		s.message_size = MESSAGE_SIZE
+	}
 
 	// s.fixed_request_buffer = make([]byte, MESSAGE_SIZE)
 	// s.variable_request_buffer = bytes.NewBuffer(nil)
@@ -196,9 +208,11 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 	log.Info().Msgf("Serving at address: %s", s.lis.Addr())
 
 	//Begin Accept Loop
-
 	var tempDelay time.Duration
 	for {
+		if s.stop {
+			return nil
+		}
 		rawConn, err := lis.Accept()
 		if err != nil {
 			log.Error().Msgf("Accept error: %s", err)
@@ -261,7 +275,7 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 
 func (s *NotnetsServer) Stop() {
 	//Stop grpc??? How though
-	// s.Stop()
+	s.stop = true
 	s.lis.Close()
 	//Stop any notnets specifics
 }
@@ -315,19 +329,24 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
 	// defer close connection
 	// var wg sync.WaitGroup
-	fixed_request_buffer := make([]byte, MESSAGE_SIZE) //MESSAGE_SIZE
+
+	fixed_request_buffer := make([]byte, s.message_size) //MESSAGE_SIZE
 	variable_request_buffer := bytes.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
 		size, err := stream.Read(fixed_request_buffer)
 		if err != nil {
-			log.Error().Msgf("Read error: %s", err)
+			log.Error().Msgf("Server: Read Error: %s", err)
 		}
 
-		variable_request_buffer.Write(fixed_request_buffer)
-		if size == 0 { //Have full payload
-			log.Trace().Msgf("Received request: %s", variable_request_buffer)
+		vsize, err := variable_request_buffer.Write(fixed_request_buffer[:size])
+		if err != nil {
+			log.Error().Msgf("Server: Variable Buffer Write Error: %s", err)
+		}
+		if size < s.message_size{ //Have full payload, as we have a read that is smaller than buffer
+			log.Trace().Msgf("Server: Received Request Size: %d", vsize)
+			log.Trace().Msgf("Server: Received Request: %s", variable_request_buffer)
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
 			s.handleMethod(stream, variable_request_buffer)
@@ -350,6 +369,7 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *bytes.Buffer) {
 	// s.request_reader.Reset(b)
 	request_reader := bufio.NewReader(b)
 	tmp, err := http.ReadRequest(request_reader)
+	b.Reset()
 	if err != nil {
 		return
 	}
