@@ -163,7 +163,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	//iterate and append to dynamically allocated data until all data is read
 	for {
 
-		size, err = stream.Read(fixed_read_buffer)
+		size, err := stream.Read(fixed_response_buffer)
 		if err != nil {
 			log.Error().Msgf("Client: Read Error: %s", err)
 			return err

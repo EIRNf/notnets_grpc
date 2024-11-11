@@ -124,10 +124,14 @@ type NotnetsServer struct {
 	opts             handlerOpts
 	unaryInterceptor grpc.UnaryServerInterceptor
 
-	// quit    *grpcsync.Event
+	// quit    *sync.Event
 	// done    *grpcsync.Event
+	numServerWorkers uint32
 	serveWG sync.WaitGroup
+	handlerWG sync.WaitGroup
 
+	serverWorkerChannel chan func()
+	serverWorkerChannelClose func()
 	// ErrorLog *log.Logger
 
 	mu sync.RWMutex
@@ -135,27 +139,42 @@ type NotnetsServer struct {
 	// Listener accepting connections on a particular IP  and port
 	lis net.Listener
 
+
 	prev_time time.Time
 
 	// Map of queue pairs for boolean of active or inactive connections
 	// conns map[int]*QueuePair
 
 	conns        sync.Map
-	live_streams yamux.Stream
-
+	stop bool
 
 	message_size int
-	// fixed_request_buffer    []byte
-	// variable_request_buffer *bytes.Buffer
-	// request_reader          *bufio.Reader
-
-	// fixed_response_buffer []byte
-	// response_reader       *bytes.Reader
-	// ShmQueueInfo  *QueueInfo
-	// responseQueue *Queue
-	// requestQeuue  *Queue
-
 	//Extra fields
+}
+
+
+const serverWorkerResetThreshold = 1 << 16
+
+func (s *NotnetsServer) serverWorker() {
+	for completed := 0; completed < serverWorkerResetThreshold; completed++ {
+		f, ok := <-s.serverWorkerChannel
+		if !ok {
+			return
+		}
+		f()
+	}
+	go s.serverWorker()
+}
+
+func (s *NotnetsServer) initServerWorkers()  {
+	s.serverWorkerChannel = make(chan func())
+	s.serverWorkerChannelClose = sync.OnceFunc(func() {
+		close(s.serverWorkerChannel)
+	})
+	for i := uint32(0); i < s.numServerWorkers; i++ {
+		go s.serverWorker()
+	}
+
 }
 
 func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
@@ -172,13 +191,10 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 		s.message_size = MESSAGE_SIZE
 	}
 
-	// s.fixed_request_buffer = make([]byte, MESSAGE_SIZE)
-	// s.variable_request_buffer = bytes.NewBuffer(nil)
-
-	// s.request_reader = bufio.NewReader(s.variable_request_buffer)
-
-	// s.fixed_response_buffer = make([]byte, MESSAGE_SIZE)
-	// s.response_reader = bytes.NewReader(s.fixed_response_buffer)
+	s.numServerWorkers = 2048
+	if s.numServerWorkers > 0 {
+		s.initServerWorkers()
+	}
 
 	return &s
 }
@@ -206,6 +222,18 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 	s.mu.Unlock()
 
 	log.Info().Msgf("Serving at address: %s", s.lis.Addr())
+
+
+	s.serveWG.Add(1)
+	defer func() {
+		s.serveWG.Done()
+		// if s.quit.HasFired() {
+		// 	// Stop or GracefulStop called; block until done and return nil.
+		// 	<-s.done.Done()
+		// }
+	}()
+
+
 
 	//Begin Accept Loop
 	var tempDelay time.Duration
@@ -264,13 +292,13 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 		} else {
 			s.conns.Store(rawConn.(*NotnetsConn).queues.queues.ClientId, rawConn)
 
-			//TODO, improve multithreaded with waitgroupcs
+			s.serveWG.Add(1)
 			go func() {
 				s.handleConnection(rawConn)
+				s.serveWG.Done()
 			}()
 		}
 	}
-	return nil
 }
 
 func (s *NotnetsServer) Stop() {
@@ -289,43 +317,71 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 	//Check if server has been shutdown
 	//Set service deadlines?
 	//Launch dedicated thread to handle
-	go func() {
 		log.Trace().Msgf("New go routine for connection: %s", conn)
 
-		s.serveRequests(conn)
+		config := &yamux.Config{
+			AcceptBacklog:          256,
+			EnableKeepAlive:        true,
+			KeepAliveInterval:      30 * time.Second,
+			ConnectionWriteTimeout: 500 * time.Second,
+			MaxStreamWindowSize:    256 * 1024,
+			StreamCloseTimeout:     5 * time.Minute,
+			StreamOpenTimeout:      75 * time.Second,
+			LogOutput:              os.Stderr,
+		}
+	
+		session, err := yamux.Server(conn, config)
+		if err != nil {
+			panic(err)
+		}
+
+		
+
+		service_loop := func(){
+			for {
+				// Accept a stream and handle it
+				stream, err := session.AcceptStream()
+				if err != nil {
+					print("Error accepting stream")
+					panic(err)
+				}
+				s.handlerWG.Add(1)
+				f := func() {
+					defer s.handlerWG.Done()
+					s.serveRequests(stream)
+				}
+				if s.numServerWorkers > 0 {
+					select {
+					case s.serverWorkerChannel <- f:
+						continue
+					default:
+						//If all workers are busy, just launch a new goroutine
+						print("All workers busy")
+						go f()
+					}
+				}
+			}
+		}
+
+		go service_loop()
+		go service_loop()
+		go service_loop()
+
+
+
+		service_loop()
+
+		
 		// If return from this method, connection has been closed
 		// Remove and start servicing, close connection
 		// s.closeConnection()
-	}()
+	
 }
 
 // Actually handles the incoming message flow from the client
 // Uses predeclared function
-func (s *NotnetsServer) serveRequests(conn net.Conn) {
-
-	log.Trace().Msgf("Serving: %s", conn)
-
-	config := &yamux.Config{
-		AcceptBacklog:          256,
-		EnableKeepAlive:        true,
-		KeepAliveInterval:      30 * time.Second,
-		ConnectionWriteTimeout: 500 * time.Second,
-		MaxStreamWindowSize:    256 * 1024,
-		StreamCloseTimeout:     5 * time.Minute,
-		StreamOpenTimeout:      75 * time.Second,
-		LogOutput:              os.Stderr,
-	}
-
-	session, err := yamux.Server(conn, config)
-	if err != nil {
-		panic(err)
-	}
-
-	// Accept a stream
-	stream, err := session.AcceptStream()
-	if err != nil {
-		panic(err)
-	}
+func (s *NotnetsServer) serveRequests(stream net.Conn) {
+	log.Trace().Msgf("Serving: %s", stream)
 
 	// defer close connection
 	// var wg sync.WaitGroup
@@ -350,6 +406,7 @@ func (s *NotnetsServer) serveRequests(conn net.Conn) {
 
 			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
 			s.handleMethod(stream, variable_request_buffer)
+			return;
 		}
 	}
 	// Call handle method as we read of queue appropriately.
