@@ -191,7 +191,7 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 		s.message_size = MESSAGE_SIZE
 	}
 
-	s.numServerWorkers = 2048
+	s.numServerWorkers = 32
 	if s.numServerWorkers > 0 {
 		s.initServerWorkers()
 	}
