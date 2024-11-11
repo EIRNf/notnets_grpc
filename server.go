@@ -29,6 +29,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	encoding_proto "google.golang.org/grpc/encoding/proto"
+
+	pool "github.com/libp2p/go-buffer-pool"
 )
 
 type NotnetsListener struct {
@@ -133,6 +135,8 @@ type NotnetsServer struct {
 	serverWorkerChannel chan func()
 	serverWorkerChannelClose func()
 	// ErrorLog *log.Logger
+
+	read_buffer_pool pool.BufferPool
 
 	mu sync.RWMutex
 
@@ -386,8 +390,10 @@ func (s *NotnetsServer) serveRequests(stream net.Conn) {
 	// defer close connection
 	// var wg sync.WaitGroup
 
-	fixed_request_buffer := make([]byte, s.message_size) //MESSAGE_SIZE
-	variable_request_buffer := bytes.NewBuffer(nil)
+	fixed_request_buffer := s.read_buffer_pool.Get(s.message_size)
+	// fixed_request_buffer := make([]byte, s.message_size) //MESSAGE_SIZE
+	
+	variable_request_buffer := pool.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
@@ -404,7 +410,8 @@ func (s *NotnetsServer) serveRequests(stream net.Conn) {
 			log.Trace().Msgf("Server: Received Request Size: %d", vsize)
 			log.Trace().Msgf("Server: Received Request: %s", variable_request_buffer)
 
-			// log.Info().Msgf("handle request: %s", s.timestamp_dif())
+			// Return read buffer to pool
+			s.read_buffer_pool.Put(fixed_request_buffer)
 			s.handleMethod(stream, variable_request_buffer)
 			return;
 		}
@@ -412,7 +419,7 @@ func (s *NotnetsServer) serveRequests(stream net.Conn) {
 	// Call handle method as we read of queue appropriately.
 }
 
-func (s *NotnetsServer) handleMethod(stream net.Conn, b *bytes.Buffer) {
+func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	// runtime.LockOSThread()
 
 	// var json = jsoniter.ConfigCompatibleWithStandardLibrary

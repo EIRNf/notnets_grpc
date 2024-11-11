@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/EIRNf/notnets_grpc/internal"
+	pool "github.com/libp2p/go-buffer-pool"
 
 	"time"
 
@@ -78,6 +79,9 @@ type NotnetsChannel struct {
 	message_size int32
 
 	session_conn *yamux.Session
+
+	read_buffer_pool pool.BufferPool
+
 	// request_payload_buffer []byte
 
 	// fixed_read_buffer    []byte
@@ -156,7 +160,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// var fixed_read_buffer []byte
 	// var variable_read_buffer bytes.Buffer
 
-	fixed_response_buffer := make([]byte, ch.message_size)
+	fixed_response_buffer := pool.Get(int(ch.message_size))
 	variable_respnse_buffer := bytes.NewBuffer(nil)
 
 	//Receive Request
@@ -178,6 +182,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		if size < int(ch.message_size) { //Have full payload, as we have a read that is smaller than buffer
 			log.Trace().Msgf("Client: Received Response Size: %d", vsize)
 			log.Trace().Msgf("Client: Received Response: %s", variable_respnse_buffer)
+			pool.Put(fixed_response_buffer)
 			break
 		} else { // More data to read, as buffer is full
 			continue
