@@ -2,7 +2,6 @@ package notnets_grpc
 
 import (
 	"log"
-	"runtime/debug"
 	"testing"
 
 	test_hello_service "github.com/EIRNf/notnets_grpc/test_hello_service"
@@ -11,8 +10,9 @@ import (
 
 func BenchmarkGrpcOverSharedMemory(b *testing.B) {
 
-	debug.SetGCPercent(1000)
+	// debug.SetGCPercent(1000)
 	// runtime.MemProfileRate = 1
+
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 

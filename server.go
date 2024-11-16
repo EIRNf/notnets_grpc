@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/textproto"
 	"os"
 	"strconv"
@@ -137,6 +136,8 @@ type NotnetsServer struct {
 	// ErrorLog *log.Logger
 
 	read_buffer_pool pool.BufferPool
+	// write_buffer_pool pool.BufferPool
+	bufioReaderPool sync.Pool
 
 	mu sync.RWMutex
 
@@ -155,6 +156,24 @@ type NotnetsServer struct {
 	message_size int
 	//Extra fields
 }
+
+
+func (s *NotnetsServer) newBufioReader(r io.Reader) *bufio.Reader {
+	if v := s.bufioReaderPool.Get(); v != nil {
+		br := v.(*bufio.Reader)
+		br.Reset(r)
+		return br
+	}
+	// Note: if this reader size is ever changed, update
+	// TestHandlerBodyClose's assumptions.
+	return bufio.NewReader(r)
+}
+
+func  (s *NotnetsServer) putBufioReader(br *bufio.Reader) {
+	br.Reset(nil)
+	s.bufioReaderPool.Put(br)
+}
+
 
 
 const serverWorkerResetThreshold = 1 << 16
@@ -369,7 +388,6 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 
 		go service_loop()
 		go service_loop()
-		go service_loop()
 
 
 
@@ -420,45 +438,26 @@ func (s *NotnetsServer) serveRequests(stream net.Conn) {
 }
 
 func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
-	// runtime.LockOSThread()
 
-	// var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	request_reader := s.newBufioReader(b)
+	defer	s.putBufioReader(request_reader)
 
-	// log.Info().Msgf("Server: Message Received: %s \n ", b.String())
-
-	// Need a method to unmarshall general struct of
-	// request, JSON for now
-	// log.Info().Msgf("handle method: %s", s.timestamp_dif())
-
-	// s.request_reader.Reset(b)
-	request_reader := bufio.NewReader(b)
-	tmp, err := http.ReadRequest(request_reader)
-	b.Reset()
+	http_req, err := http.ReadRequest(request_reader)
 	if err != nil {
 		return
 	}
 
-	// var messageRequest ShmMessage
-
-	// decoder := json.NewDecoder(b)
-	// err := decoder.Decode(&messageRequest)
-	// if err != nil {
-	// 	log.Panic()
-	// }
-
-	log.Trace().Msgf("Server: Deserialized Request: %v \n ", tmp)
-
-	// log.Info().Msgf("unmarshal: %s", s.timestamp_dif())
+	log.Trace().Msgf("Server: Deserialized Request: %v \n ", http_req)
 
 	//Request context
-	ctx := tmp.Context()
+	ctx := http_req.Context()
 
-	fullName := tmp.RequestURI
+	fullName := http_req.RequestURI
 	strs := strings.SplitN(fullName[1:], "/", 3)
 	serviceName := strs[1]
 	methodName := strs[2]
 
-	ctx, cancel, err := contextFromHeaders(ctx, tmp.Header)
+	ctx, cancel, err := contextFromHeaders(ctx, http_req.Header)
 	if err != nil {
 		// writeError(w, http.StatusBadRequest)
 		return
@@ -470,7 +469,7 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	sd, handler := s.handlers.QueryService(serviceName)
 	if sd == nil {
 		// service name not found
-		status.Errorf(codes.Unimplemented, "service %s not implemented", tmp.Method)
+		status.Errorf(codes.Unimplemented, "service %s not implemented", http_req.Method)
 	}
 	// log.Info().Msgf("query service: %s", s.timestamp_dif())
 	log.Trace().Msgf("Server: Service Description: %v \n ", sd)
@@ -488,12 +487,11 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	//Get Codec for content type.
 	codec := encoding.GetCodec(encoding_proto.Name)
 
-	req, err := io.ReadAll(tmp.Body)
+	req, err := io.ReadAll(http_req.Body)
 	if err != nil {
 		return
 	}
-
-	err = tmp.Body.Close()
+	err = http_req.Body.Close()
 	if err != nil {
 		return
 	}
@@ -534,33 +532,22 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 
 	// log.Info().Msgf("handle: %s", s.timestamp_dif())
 
-	log.Trace().Msgf("Server: Response: %s \n ", resp)
+	log.Trace().Msgf("Server: Handler Response: %s \n ", resp)
 
-	// var resp_buffer []byte
 	fixed_response_buffer, err := codec.Marshal(resp)
-	// resp_buffer, err = protojson.Marshal(resp.(proto.Message))
-
 	if err != nil {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
+	response_reader := s.newBufioReader(bytes.NewReader(fixed_response_buffer))
+	defer	s.putBufioReader(response_reader)
 
-	// s.response_reader.Reset(s.fixed_response_buffer)
-	response_reader := bytes.NewReader(fixed_response_buffer)
+	http_resp := new(http.Response)
+	http_resp.Body = io.NopCloser(response_reader)
+	http_resp.ContentLength = int64(len(fixed_response_buffer))
 
-	t := &http.Response{
-		// Status:        tmp.Response.Status,
-		// StatusCode:    200,
-		// Proto:         "HTTP/1.1",
-		// ProtoMajor:    1,
-		// ProtoMinor:    1,
-		Body:          io.NopCloser(response_reader),
-		ContentLength: int64(len(fixed_response_buffer)), //is this okay
-		Request:       tmp,
-		Header:        make(http.Header, 0),
-	}
-
-	toHeaders(sts.GetHeaders(), t.Header, "")
-	toHeaders(sts.GetTrailers(), t.Header, "X-GRPC-Trailer-")
+	http_resp.Header = make(http.Header)
+	toHeaders(sts.GetHeaders(), http_resp.Header, "")
+	toHeaders(sts.GetTrailers(), http_resp.Header, "X-GRPC-Trailer-")
 
 	if err != nil {
 		st, _ := status.FromError(err)
@@ -572,61 +559,40 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 			st = status.FromProto(stpb)
 		}
 		statProto := st.Proto()
-		t.Header.Set("X-GRPC-Status", fmt.Sprintf("%d:%s", statProto.Code, statProto.Message))
+		http_resp.Header.Set("X-GRPC-Status", fmt.Sprintf("%d:%s", statProto.Code, statProto.Message))
 		for _, d := range statProto.Details {
 			b, err := codec.Marshal(d)
 			if err != nil {
 				continue
 			}
 			str := base64.RawURLEncoding.EncodeToString(b)
-			t.Header.Add(grpcDetailsHeader, str)
+			http_resp.Header.Add(grpcDetailsHeader, str)
 		}
 		// errHandler(tmp.Context(), st, t)
 		return
 	}
 
-	t.Status = "200 OK"
-	t.StatusCode = 200
-	t.Proto = "HTTP/1.1"
+	http_resp.Status = "200 OK"
+	http_resp.StatusCode = 200
+	http_resp.Proto = "HTTP/1.1"
 
-	// var response *http.Response
-	// response, err := http.ReadResponse(bufio.NewReader(buf), tmp)
 
-	// var w http.ResponseWriter
-	// w.Write(resp_buffer)
-	// w.WriteHeader(http.StatusOK)
+	contentType := http_req.Header.Get("Content-Type")
+	http_resp.Header.Set("Content-Type", contentType)
+	http_resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(fixed_response_buffer)))
 
-	// err = response.Write(buf)
-	//If any error shows up propogate to respnse
-	// messageResponse := &ShmMessage{
-	// 	Method:   methodName,
-	// 	ctx:      ctx,
-	// 	Headers:  sts.GetHeaders(),
-	// 	Trailers: sts.GetTrailers(),
-	// 	Payload:  resp_buffer,
-	// }
 
-	// var serializedMessage []byte
-	// serializedMessage, err = json.Marshal(messageResponse)
-	// log.Info().Msgf("marshal: %s", s.timestamp_dif())
-	// if err != nil {
-	// 	status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
-	// }
+	write_buffer := pool.NewBuffer(nil)
+	http_resp.Write(write_buffer)
 
-	// log.Trace().Msgf("Server: Serialized Response: %s \n ", serializedMessage)
+	log.Trace().Msgf("Server: Final Response: %v \n ", http_resp)
+	
 
-	// log.Info().Msgf("Server: Message Sent: %s \n ", serializedMessage)
+	// http_resp.Write(stream)
+	stream.Write(write_buffer.Bytes())
 
-	contentType := tmp.Header.Get("Content-Type")
-	t.Header.Set("Content-Type", contentType)
-	t.Header.Set("Content-Length", fmt.Sprintf("%d", len(fixed_response_buffer)))
-	//Begin write back
-	// message := []byte("{\"method\":\"SayHello\",\"context\":{\"Context\":{\"Context\":{\"Context\":{}}}},\"headers\":null,\"trailers\":null,\"payload\":\"\\n\\u000bHello world\"}")
-	finalbuf, _ := httputil.DumpResponse(t, true)
-	// var writeBuffer = &bytes.Buffer{}
-	// t.Write(writeBuffer)
-	stream.Write(finalbuf)
-	// runtime.UnlockOSThread()
+	
+
 }
 
 func (s *NotnetsServer) Context(ctx context.Context) context.Context {

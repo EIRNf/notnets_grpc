@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/EIRNf/notnets_grpc/internal"
 	pool "github.com/libp2p/go-buffer-pool"
@@ -81,6 +82,7 @@ type NotnetsChannel struct {
 	session_conn *yamux.Session
 
 	read_buffer_pool pool.BufferPool
+	bufioReaderPool sync.Pool
 
 	// request_payload_buffer []byte
 
@@ -102,6 +104,23 @@ type NotnetsChannel struct {
 	//connectTimeout
 	//ConnectTimeWait
 }
+
+func (s *NotnetsChannel) newBufioReader(r io.Reader) *bufio.Reader {
+	if v := s.bufioReaderPool.Get(); v != nil {
+		br := v.(*bufio.Reader)
+		br.Reset(r)
+		return br
+	}
+	// Note: if this reader size is ever changed, update
+	// TestHandlerBodyClose's assumptions.
+	return bufio.NewReader(r)
+}
+
+func  (s *NotnetsChannel) putBufioReader(br *bufio.Reader) {
+	br.Reset(nil)
+	s.bufioReaderPool.Put(br)
+}
+
 
 type Channel = grpc.ClientConnInterface
 var _ grpc.ClientConnInterface = (*NotnetsChannel)(nil)
@@ -189,9 +208,9 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
-	response_reader := bufio.NewReader(variable_respnse_buffer)
+	response_reader := ch.newBufioReader(variable_respnse_buffer)
+	defer ch.putBufioReader(response_reader)
 	tmp, err := http.ReadResponse(response_reader, r)
-	variable_respnse_buffer.Reset()
 	if err != nil {
 		return err
 	}
