@@ -221,6 +221,7 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	defer ch.putBufioReader(response_reader)
 
 	resp_tmp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(resp_tmp)
 	resp_tmp.Read(response_reader)
 
 	// resp_tmp.Header.VisitAll(func(k, v []byte) {
