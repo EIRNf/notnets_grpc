@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/EIRNf/notnets_grpc/internal"
 	pool "github.com/libp2p/go-buffer-pool"
@@ -24,6 +25,8 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/hashicorp/yamux"
+
+	"github.com/valyala/fasthttp"
 )
 
 func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, error) {
@@ -136,48 +139,52 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	// Get headersFromContext
 	reqUrl := "//" + ch.conn.remote_addr.Network()
 	reqUrl = path.Join(reqUrl, methodName)
-	// reqUrlStr := reqUrl.String()
 
 	ctx, err := internal.ApplyPerRPCCreds(ctx, copts, fmt.Sprintf("shm:0%s", reqUrl), true)
 	if err != nil {
 		return err
 	}
-	h := headersFromContext(ctx)
-	h.Set("Content-Type", UnaryRpcContentType_V1)
-
+	headers := headersFromContext(ctx) //TODO
 	codec := encoding.GetCodec(grpcproto.Name)
 	request_payload_buffer, err := codec.Marshal(req)
 	if err != nil {
 		return err
 	}
-	// ch.request_reader.Write(ch.request_payload_buffer)
-	request_reader := bytes.NewBuffer(request_payload_buffer)
-	r, err := http.NewRequest("POST", reqUrl, request_reader)
+
+
+	request := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(request)
+	request.DisableRedirectPathNormalizing = true	
+	request.Header.SetMethod("POST")
+	request.Header.SetRequestURI(reqUrl)
+	request.SetBodyRaw(request_payload_buffer)
+	request.SetHost(ch.conn.local_addr.String())
+	request.Header.Add("Content-Type", UnaryRpcContentType_V1)
+	
+	for k, vv := range headers{
+		for _, v := range vv {
+			request.Header.Add(k, v)
+		}
+	}
+
+	write_buf := bytes.NewBuffer(nil)
+	_, err = request.WriteTo(write_buf)
 	if err != nil {
 		return err
 	}
-	r.Header = h
+	
 
-	var writeBuffer = &bytes.Buffer{}
-	r.WithContext(ctx).Write(writeBuffer)
 
-	log.Trace().Msgf("Client: Serialized Request: %s \n ", writeBuffer)
+	log.Trace().Msgf("Client: Serialized Request: %s \n ", write_buf)
 
 	//START MESSAGING
-
 	// Open a new stream to handle this request:
 	stream, err := ch.session_conn.Open()
 	if err != nil {
 		panic(err)
 	}
 
-	stream.Write(writeBuffer.Bytes())
-
-	// pass into shared mem queue
-	// ch.conn.Write(writeBuffer.Bytes())
-
-	// var fixed_read_buffer []byte
-	// var variable_read_buffer bytes.Buffer
+	stream.Write(write_buf.Bytes())
 
 	fixed_response_buffer := pool.Get(int(ch.message_size))
 	variable_respnse_buffer := bytes.NewBuffer(nil)
@@ -208,26 +215,40 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
+	// defer stream.Close() 
+
 	response_reader := ch.newBufioReader(variable_respnse_buffer)
 	defer ch.putBufioReader(response_reader)
-	tmp, err := http.ReadResponse(response_reader, r)
-	if err != nil {
-		return err
-	}
 
-	//Create goroutine to handle cancels?
+	resp_tmp := fasthttp.Response{}
+	resp_tmp.Read(response_reader)
 
-	b, err := io.ReadAll(tmp.Body)
-	tmp.Body.Close()
-	if err != nil {
-		return err
-	}
+	resp_tmp.Header.VisitAll(func(k, v []byte) {
+		log.Trace().Msgf("Client: Response Header: %s: %s", k, v)
+	})
 
 	// gather headers and trailers
+
+	headers = make(http.Header)
+	resp_tmp.Header.VisitAll(func(k, v []byte) {
+		sk := b2s(k)
+		sv := b2s(v)
+		if sk == fasthttp.HeaderCookie {
+			sv = strings.Clone(sv)
+		}
+		headers.Set(sk, sv)
+	})
+
 	if len(copts.Headers) > 0 || len(copts.Trailers) > 0 {
-		if err := setMetadata(tmp.Header, copts); err != nil {
+		if err := setMetadata(headers, copts); err != nil {
 			return err
 		}
+	}
+
+	b := resp_tmp.Body()
+	// resp_tmp
+	if err != nil {
+		return err
 	}
 
 	// copts.SetHeaders(t)
@@ -300,6 +321,12 @@ func setMetadata(h http.Header, copts *internal.CallOptions) error {
 	copts.SetHeaders(hdr)
 	copts.SetTrailers(tlr)
 	return nil
+}
+
+// b2s converts byte slice to a string without memory allocation.
+// See https://groups.google.com/forum/#!msg/Golang-Nuts/ENgbUzYvCuU/90yGx7GUAgAJ .
+func b2s(b []byte) string {
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
 func (ch *NotnetsChannel) NewStream(ctx context.Context, desc *grpc.StreamDesc, methodName string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
