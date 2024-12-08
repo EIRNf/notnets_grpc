@@ -220,27 +220,27 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	response_reader := ch.newBufioReader(variable_respnse_buffer)
 	defer ch.putBufioReader(response_reader)
 
-	resp_tmp := fasthttp.Response{}
+	resp_tmp := fasthttp.AcquireResponse()
 	resp_tmp.Read(response_reader)
 
-	resp_tmp.Header.VisitAll(func(k, v []byte) {
-		log.Trace().Msgf("Client: Response Header: %s: %s", k, v)
-	})
+	// resp_tmp.Header.VisitAll(func(k, v []byte) {
+	// 	log.Trace().Msgf("Client: Response Header: %s: %s", k, v)
+	// })
 
 	// gather headers and trailers
 
-	headers = make(http.Header)
+	resp_headers := make(http.Header)
 	resp_tmp.Header.VisitAll(func(k, v []byte) {
 		sk := b2s(k)
 		sv := b2s(v)
 		if sk == fasthttp.HeaderCookie {
 			sv = strings.Clone(sv)
 		}
-		headers.Set(sk, sv)
+		resp_headers.Set(sk, sv)
 	})
 
 	if len(copts.Headers) > 0 || len(copts.Trailers) > 0 {
-		if err := setMetadata(headers, copts); err != nil {
+		if err := setMetadata(resp_headers, copts); err != nil {
 			return err
 		}
 	}

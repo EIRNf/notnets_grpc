@@ -18,6 +18,7 @@ import (
 
 	"github.com/EIRNf/notnets_grpc/internal"
 	"github.com/hashicorp/yamux"
+	"github.com/valyala/fasthttp"
 
 	"github.com/fullstorydev/grpchan"
 	"github.com/rs/zerolog/log"
@@ -442,7 +443,10 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	request_reader := s.newBufioReader(b)
 	defer	s.putBufioReader(request_reader)
 
-	http_req, err := http.ReadRequest(request_reader)
+
+	http_req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(http_req)
+	err := http_req.Read(request_reader)
 	if err != nil {
 		return
 	}
@@ -450,14 +454,24 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	log.Trace().Msgf("Server: Deserialized Request: %v \n ", http_req)
 
 	//Request context
-	ctx := http_req.Context()
+	ctx := context.Background()
 
-	fullName := http_req.RequestURI
+	fullName := b2s(http_req.RequestURI())
 	strs := strings.SplitN(fullName[1:], "/", 3)
 	serviceName := strs[1]
 	methodName := strs[2]
 
-	ctx, cancel, err := contextFromHeaders(ctx, http_req.Header)
+	headers := make(http.Header)
+	http_req.Header.VisitAll(func(k, v []byte) {
+		sk := b2s(k)
+		sv := b2s(v)
+		if sk == fasthttp.HeaderCookie {
+			sv = strings.Clone(sv)
+		}
+		headers.Set(sk, sv)
+	})
+
+	ctx, cancel, err := contextFromHeaders(ctx, headers)
 	if err != nil {
 		// writeError(w, http.StatusBadRequest)
 		return
@@ -469,7 +483,7 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	sd, handler := s.handlers.QueryService(serviceName)
 	if sd == nil {
 		// service name not found
-		status.Errorf(codes.Unimplemented, "service %s not implemented", http_req.Method)
+		status.Errorf(codes.Unimplemented, "service %s not implemented", http_req.Header.Method())
 	}
 	// log.Info().Msgf("query service: %s", s.timestamp_dif())
 	log.Trace().Msgf("Server: Service Description: %v \n ", sd)
@@ -487,11 +501,11 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	//Get Codec for content type.
 	codec := encoding.GetCodec(encoding_proto.Name)
 
-	req, err := io.ReadAll(http_req.Body)
+	req := http_req.Body()
 	if err != nil {
 		return
 	}
-	err = http_req.Body.Close()
+	err = http_req.CloseBodyStream()
 	if err != nil {
 		return
 	}
@@ -541,13 +555,23 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 	response_reader := s.newBufioReader(bytes.NewReader(fixed_response_buffer))
 	defer	s.putBufioReader(response_reader)
 
-	http_resp := new(http.Response)
-	http_resp.Body = io.NopCloser(response_reader)
-	http_resp.ContentLength = int64(len(fixed_response_buffer))
+	//Create response
+	http_resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(http_resp)
 
-	http_resp.Header = make(http.Header)
-	toHeaders(sts.GetHeaders(), http_resp.Header, "")
-	toHeaders(sts.GetTrailers(), http_resp.Header, "X-GRPC-Trailer-")
+	http_resp.SetBodyRaw(fixed_response_buffer)
+	http_resp.Header.SetContentLength(len(fixed_response_buffer))
+	
+	temp_headers := make(http.Header)
+	toHeaders(sts.GetHeaders(), temp_headers, "")
+	toHeaders(sts.GetTrailers(), temp_headers, "X-GRPC-Trailer-")
+
+	for k, vv := range temp_headers {
+		for _, v := range vv {
+			http_resp.Header.Add(k, v)
+		}
+	}
+
 
 	if err != nil {
 		st, _ := status.FromError(err)
@@ -572,27 +596,19 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 		return
 	}
 
-	http_resp.Status = "200 OK"
-	http_resp.StatusCode = 200
-	http_resp.Proto = "HTTP/1.1"
+	http_resp.Header.SetStatusCode(200)
+	// http_resp.Header.SetProtocol("HTTP/1.1")
 
-
-	contentType := http_req.Header.Get("Content-Type")
-	http_resp.Header.Set("Content-Type", contentType)
-	http_resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(fixed_response_buffer)))
+	contentType := http_req.Header.ContentType()
+	http_resp.Header.Set("Content-Type", b2s(contentType))
 
 
 	write_buffer := pool.NewBuffer(nil)
-	http_resp.Write(write_buffer)
+	http_resp.WriteTo(write_buffer)
 
 	log.Trace().Msgf("Server: Final Response: %v \n ", http_resp)
-	
 
-	// http_resp.Write(stream)
 	stream.Write(write_buffer.Bytes())
-
-	
-
 }
 
 func (s *NotnetsServer) Context(ctx context.Context) context.Context {
