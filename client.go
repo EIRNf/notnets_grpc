@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/hashicorp/yamux"
+	// "github.com/xtaci/smux"
 
 	"github.com/valyala/fasthttp"
 )
@@ -68,6 +69,12 @@ func Dial(local_addr, remote_addr string, message_size int32) (*NotnetsChannel, 
 			}
 		}
 	}
+
+    // ch.session, err := smux.Client(ch.conn, nil)
+    // if err != nil {
+    //     panic(err)
+    // }
+
 	ch.session_conn, _ = yamux.Client(ch.conn, nil)
 
 	log.Info().Msgf("Client: New Channel: %v \n ", ch.conn.queues.queues.ClientId)
@@ -83,6 +90,7 @@ type NotnetsChannel struct {
 	message_size int32
 
 	session_conn *yamux.Session
+	// session *smux.Session
 
 	read_buffer_pool pool.BufferPool
 	bufioReaderPool sync.Pool
@@ -183,11 +191,26 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	if err != nil {
 		panic(err)
 	}
+	defer 	stream.Close()
+
+
+	// stream, err := ch.session.OpenStream()
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+
+
+
+	log.Trace().Msgf("Client: Stream Opened:\n ")
 
 	stream.Write(write_buf.Bytes())
 
+
 	fixed_response_buffer := pool.Get(int(ch.message_size))
 	variable_respnse_buffer := bytes.NewBuffer(nil)
+
+	log.Trace().Msgf("Client: Stream written: %s \n ", write_buf)
 
 	//Receive Request
 	//iterate and append to dynamically allocated data until all data is read
@@ -215,14 +238,16 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 		}
 	}
 
-	// defer stream.Close() 
 
 	response_reader := ch.newBufioReader(variable_respnse_buffer)
 	defer ch.putBufioReader(response_reader)
 
 	resp_tmp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(resp_tmp)
-	resp_tmp.Read(response_reader)
+	err = resp_tmp.Read(response_reader)
+	if err != nil {
+		return err
+	}
 
 	// resp_tmp.Header.VisitAll(func(k, v []byte) {
 	// 	log.Trace().Msgf("Client: Response Header: %s: %s", k, v)
@@ -247,7 +272,9 @@ func (ch *NotnetsChannel) Invoke(ctx context.Context, methodName string, req, re
 	}
 
 	b := resp_tmp.Body()
-	// resp_tmp
+
+
+	err = resp_tmp.CloseBodyStream()
 	if err != nil {
 		return err
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/EIRNf/notnets_grpc/internal"
 	"github.com/hashicorp/yamux"
+	// "github.com/xtaci/smux"	
 	"github.com/valyala/fasthttp"
 
 	"github.com/fullstorydev/grpchan"
@@ -345,7 +346,7 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 
 		config := &yamux.Config{
 			AcceptBacklog:          256,
-			EnableKeepAlive:        true,
+			EnableKeepAlive:        false,
 			KeepAliveInterval:      30 * time.Second,
 			ConnectionWriteTimeout: 500 * time.Second,
 			MaxStreamWindowSize:    256 * 1024,
@@ -440,6 +441,7 @@ func (s *NotnetsServer) serveRequests(stream net.Conn) {
 
 func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 
+	defer stream.Close()
 	request_reader := s.newBufioReader(b)
 	defer	s.putBufioReader(request_reader)
 
