@@ -1,7 +1,7 @@
 package notnets_grpc
 
 // #cgo CFLAGS: -I${SRCDIR}/notnets_shm/libnotnets/include
-// #cgo LDFLAGS: -L${SRCDIR}/notnets_shm/libnotnets/bin  -lnotnets
+// #cgo LDFLAGS:  -L${SRCDIR}/notnets_shm/libnotnets/bin  -lnotnets
 // #include <stdio.h>
 // #include <unistd.h>
 // #include <sched.h>
@@ -11,6 +11,9 @@ package notnets_grpc
 // #include "coord.h"
 import "C"
 import (
+	"encoding/json"
+	"io"
+	"os"
 	"unsafe"
 
 	"github.com/rs/zerolog/log"
@@ -44,12 +47,38 @@ type ServerContext struct {
 }
 
 func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (ret *QueueContext) {
+
+	jsonFile, err := os.Open("queue_config.json")
+	if err != nil {
+		log.Error().Msgf("Got error while reading config: %v", err)
+	}
+	defer jsonFile.Close()
+	byteValue, _ := io.ReadAll(jsonFile)
+	var result map[string]string
+	json.Unmarshal([]byte(byteValue), &result)
+
+
 	_sourceAddr := C.CString(sourceAddr)
 	defer C.free(unsafe.Pointer(_sourceAddr))
 	_destinationAddr := C.CString(destinationAddr)
 	defer C.free(unsafe.Pointer(_destinationAddr))
 	_messageSize := C.int(messageSize)
-	_ret := C.client_open(_sourceAddr, _destinationAddr, _messageSize, C.POLL)
+
+	queue_type := C.QUEUE_TYPE(C.ADAPTIVE_POLL) //Default to poll
+	if result["queue_type"] == "POLL" {
+		queue_type =  C.QUEUE_TYPE(C.POLL)
+	} else if result["queue_type"] == "ADAPTIVE_POLL" {
+		queue_type =  C.QUEUE_TYPE(C.ADAPTIVE_POLL)
+	} else if result["queue_type"] == "HYBRID_MEAN_POLL" {
+		queue_type =  C.QUEUE_TYPE(C.HYBRID_MEAN_POLL)
+	} else if result["queue_type"] == "UMWAIT" {
+		queue_type =  C.QUEUE_TYPE(C.UMWAIT)
+	}	else if result["queue_type"] == "SEM" {
+		queue_type =  C.QUEUE_TYPE(C.SEM)
+	}
+
+	_ret := C.client_open(_sourceAddr, _destinationAddr, _messageSize, queue_type)
+
 	log.Info().Msgf("Client: open response : %v \n ", _ret)
 	if _ret == nil {
 		return nil //Pass on null for retry
@@ -116,9 +145,10 @@ func ClientClose(sourceAddr string, destinationAddr string) (ret int32) {
 
 // register_server
 func RegisterServer(sourceAddr string) (ret *ServerContext) {
+
 	_sourceAddr := C.CString(sourceAddr)
 	defer C.free(unsafe.Pointer(_sourceAddr))
-	_ret := C.register_server(_sourceAddr)
+	_ret := C.register_server_pthread(_sourceAddr)
 	ret = (*ServerContext)(unsafe.Pointer(_ret))
 	return
 }
