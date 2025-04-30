@@ -28,10 +28,9 @@ require (
 	github.com/aclements/go-moremath v0.0.0-20241023150245-c8bbc672ef66
 	github.com/fullstorydev/grpchan v1.1.1
 	github.com/golang/protobuf v1.5.4
-	github.com/hashicorp/yamux v0.1.1
+	github.com/hashicorp/yamux v0.1.2
 	github.com/jhump/protoreflect v1.15.4 // indirect
 	github.com/loov/hrtime v1.0.3
-	github.com/nitrix/fastcgo v0.0.0-20241007005923-b6180bb16def
 	github.com/rs/zerolog v1.33.0
 	github.com/valyala/fasthttp v1.57.0
 	golang.org/x/net v0.30.0 // indirect
