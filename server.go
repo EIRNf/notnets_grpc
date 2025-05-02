@@ -18,7 +18,8 @@ import (
 
 	"github.com/EIRNf/notnets_grpc/internal"
 	"github.com/hashicorp/yamux"
-	// "github.com/xtaci/smux"	
+
+	// "github.com/xtaci/smux"
 	"github.com/valyala/fasthttp"
 
 	"github.com/fullstorydev/grpchan"
@@ -130,10 +131,10 @@ type NotnetsServer struct {
 	// quit    *sync.Event
 	// done    *grpcsync.Event
 	numServerWorkers uint32
-	serveWG sync.WaitGroup
-	handlerWG sync.WaitGroup
+	serveWG          sync.WaitGroup
+	handlerWG        sync.WaitGroup
 
-	serverWorkerChannel chan func()
+	serverWorkerChannel      chan func()
 	serverWorkerChannelClose func()
 	// ErrorLog *log.Logger
 
@@ -146,19 +147,19 @@ type NotnetsServer struct {
 	// Listener accepting connections on a particular IP  and port
 	lis net.Listener
 
-
 	prev_time time.Time
 
 	// Map of queue pairs for boolean of active or inactive connections
 	// conns map[int]*QueuePair
 
-	conns        sync.Map
-	stop bool
+	sessions map[int]*yamux.Session
+
+	conns sync.Map
+	stop  bool
 
 	message_size int
 	//Extra fields
 }
-
 
 func (s *NotnetsServer) newBufioReader(r io.Reader) *bufio.Reader {
 	if v := s.bufioReaderPool.Get(); v != nil {
@@ -171,12 +172,10 @@ func (s *NotnetsServer) newBufioReader(r io.Reader) *bufio.Reader {
 	return bufio.NewReader(r)
 }
 
-func  (s *NotnetsServer) putBufioReader(br *bufio.Reader) {
+func (s *NotnetsServer) putBufioReader(br *bufio.Reader) {
 	br.Reset(nil)
 	s.bufioReaderPool.Put(br)
 }
-
-
 
 const serverWorkerResetThreshold = 1 << 16
 
@@ -191,7 +190,7 @@ func (s *NotnetsServer) serverWorker() {
 	go s.serverWorker()
 }
 
-func (s *NotnetsServer) initServerWorkers()  {
+func (s *NotnetsServer) initServerWorkers() {
 	s.serverWorkerChannel = make(chan func())
 	s.serverWorkerChannelClose = sync.OnceFunc(func() {
 		close(s.serverWorkerChannel)
@@ -206,6 +205,7 @@ func NewNotnetsServer(opts ...ServerOption) *NotnetsServer {
 	var s NotnetsServer
 	s.handlers = grpchan.HandlerMap{}
 	s.stop = false
+	s.sessions = make(map[int]*yamux.Session)
 
 	for _, o := range opts {
 		o.apply(&s)
@@ -247,18 +247,6 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 	s.mu.Unlock()
 
 	log.Info().Msgf("Serving at address: %s", s.lis.Addr())
-
-
-	s.serveWG.Add(1)
-	defer func() {
-		s.serveWG.Done()
-		// if s.quit.HasFired() {
-		// 	// Stop or GracefulStop called; block until done and return nil.
-		// 	<-s.done.Done()
-		// }
-	}()
-
-
 
 	//Begin Accept Loop
 	var tempDelay time.Duration
@@ -329,12 +317,16 @@ func (s *NotnetsServer) Serve(lis net.Listener) error {
 func (s *NotnetsServer) Stop() {
 	//Stop grpc??? How though
 	s.stop = true
+	for _, session := range s.sessions {
+		session.Close()
+	}
+	s.serveWG.Wait()
+	s.handlerWG.Wait()
 	s.lis.Close()
 	//Stop any notnets specifics
 }
 
 // Fork a goroutine to handle just-accepted connection
-
 func (s *NotnetsServer) handleConnection(conn net.Conn) {
 	//Called from Serve
 	log.Info().Msgf("New client connection: %s", conn)
@@ -342,64 +334,67 @@ func (s *NotnetsServer) handleConnection(conn net.Conn) {
 	//Check if server has been shutdown
 	//Set service deadlines?
 	//Launch dedicated thread to handle
-		log.Trace().Msgf("New go routine for connection: %s", conn)
+	log.Trace().Msgf("New go routine for connection: %s", conn)
 
-		config := &yamux.Config{
-			AcceptBacklog:          256,
-			EnableKeepAlive:        false,
-			KeepAliveInterval:      30 * time.Second,
-			ConnectionWriteTimeout: 500 * time.Second,
-			MaxStreamWindowSize:    256 * 1024,
-			StreamCloseTimeout:     5 * time.Minute,
-			StreamOpenTimeout:      75 * time.Second,
-			LogOutput:              os.Stderr,
-		}
-	
-		session, err := yamux.Server(conn, config)
-		if err != nil {
-			panic(err)
-		}
+	config := &yamux.Config{
+		AcceptBacklog:          256,
+		EnableKeepAlive:        false,
+		KeepAliveInterval:      30 * time.Second,
+		ConnectionWriteTimeout: 500 * time.Second,
+		MaxStreamWindowSize:    256 * 1024,
+		StreamCloseTimeout:     5 * time.Minute,
+		StreamOpenTimeout:      75 * time.Second,
+		LogOutput:              os.Stderr,
+	}
 
-		
+	session, err := yamux.Server(conn, config)
+	s.sessions[conn.(*NotnetsConn).queues.queues.ClientId] = session
 
-		service_loop := func(){
-			for {
-				// Accept a stream and handle it
-				stream, err := session.AcceptStream()
-				if err != nil {
-					print("Error accepting stream")
-					panic(err)
-				}
+	if err != nil {
+		panic(err)
+	}
+
+	service_loop := func() {
+		for {
+			if s.stop {
+				session.Close()
+				return
+			}
+			// Accept a stream and handle it
+			stream, err := session.AcceptStream()
+			if err != nil {
+				print("Error accepting stream")
+				return
+				// panic(err)
+			}
+
+			f := func() {
 				s.handlerWG.Add(1)
-				f := func() {
-					defer s.handlerWG.Done()
-					s.serveRequests(stream)
-				}
-				if s.numServerWorkers > 0 {
-					select {
-					case s.serverWorkerChannel <- f:
-						continue
-					default:
-						//If all workers are busy, just launch a new goroutine
-						print("All workers busy")
-						go f()
-					}
+				defer s.handlerWG.Done()
+				s.serveRequests(stream)
+			}
+
+			if s.numServerWorkers > 0 {
+				select {
+				case s.serverWorkerChannel <- f:
+					continue
+				default:
+					//If all workers are busy, just launch a new goroutine
+					print("All workers busy")
+					go f()
 				}
 			}
 		}
+	}
 
-		go service_loop()
-		go service_loop()
+	// go service_loop()
+	// go service_loop()
+	service_loop()
 
+	// If return from this method, connection has been closed
+	// Remove and start servicing, close connection
+	// s.closeConnection()
 
-
-		service_loop()
-
-		
-		// If return from this method, connection has been closed
-		// Remove and start servicing, close connection
-		// s.closeConnection()
-	
 }
 
 // Actually handles the incoming message flow from the client
@@ -412,11 +407,16 @@ func (s *NotnetsServer) serveRequests(stream net.Conn) {
 
 	fixed_request_buffer := s.read_buffer_pool.Get(s.message_size)
 	// fixed_request_buffer := make([]byte, s.message_size) //MESSAGE_SIZE
-	
+
 	variable_request_buffer := pool.NewBuffer(nil)
 	// s.serveWG.Add(1)
 	//iterate and append to dynamically allocated data until all data is read
 	for {
+		if s.stop {
+			log.Trace().Msgf("Server: Stopping")
+			break
+		}
+
 		size, err := stream.Read(fixed_request_buffer)
 		if err != nil {
 			log.Error().Msgf("Server: Read Error: %s", err)
@@ -426,14 +426,14 @@ func (s *NotnetsServer) serveRequests(stream net.Conn) {
 		if err != nil {
 			log.Error().Msgf("Server: Variable Buffer Write Error: %s", err)
 		}
-		if size < s.message_size{ //Have full payload, as we have a read that is smaller than buffer
+		if size < s.message_size { //Have full payload, as we have a read that is smaller than buffer
 			log.Trace().Msgf("Server: Received Request Size: %d", vsize)
 			log.Trace().Msgf("Server: Received Request: %s", variable_request_buffer)
 
 			// Return read buffer to pool
 			s.read_buffer_pool.Put(fixed_request_buffer)
 			s.handleMethod(stream, variable_request_buffer)
-			return;
+			return
 		}
 	}
 	// Call handle method as we read of queue appropriately.
@@ -443,8 +443,7 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 
 	defer stream.Close()
 	request_reader := s.newBufioReader(b)
-	defer	s.putBufioReader(request_reader)
-
+	defer s.putBufioReader(request_reader)
 
 	http_req := fasthttp.AcquireRequest()
 	defer fasthttp.ReleaseRequest(http_req)
@@ -555,7 +554,7 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 		status.Errorf(codes.Unknown, "Codec Marshalling error: %s ", err.Error())
 	}
 	response_reader := s.newBufioReader(bytes.NewReader(fixed_response_buffer))
-	defer	s.putBufioReader(response_reader)
+	defer s.putBufioReader(response_reader)
 
 	//Create response
 	http_resp := fasthttp.AcquireResponse()
@@ -563,7 +562,7 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 
 	http_resp.SetBodyRaw(fixed_response_buffer)
 	http_resp.Header.SetContentLength(len(fixed_response_buffer))
-	
+
 	temp_headers := make(http.Header)
 	toHeaders(sts.GetHeaders(), temp_headers, "")
 	toHeaders(sts.GetTrailers(), temp_headers, "X-GRPC-Trailer-")
@@ -573,7 +572,6 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 			http_resp.Header.Add(k, v)
 		}
 	}
-
 
 	if err != nil {
 		st, _ := status.FromError(err)
@@ -603,7 +601,6 @@ func (s *NotnetsServer) handleMethod(stream net.Conn, b *pool.Buffer) {
 
 	contentType := http_req.Header.ContentType()
 	http_resp.Header.Set("Content-Type", b2s(contentType))
-
 
 	write_buffer := pool.NewBuffer(nil)
 	http_resp.WriteTo(write_buffer)

@@ -64,7 +64,7 @@ func ClientOpen(sourceAddr string, destinationAddr string, messageSize int32) (r
 	defer C.free(unsafe.Pointer(_destinationAddr))
 	_messageSize := C.int(messageSize)
 
-	queue_type := C.QUEUE_TYPE(C.ADAPTIVE_POLL) //Default to poll
+	queue_type := C.QUEUE_TYPE(C.SEM) //Default to poll
 	if result["queue_type"] == "POLL" {
 		queue_type =  C.QUEUE_TYPE(C.POLL)
 	} else if result["queue_type"] == "ADAPTIVE_POLL" {
